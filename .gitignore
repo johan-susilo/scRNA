@@ -1,0 +1,106 @@
+# VS Code Server cache/logs/state
+.vscode-server/
+
+# User configuration files (if repo is accidentally tracking home dir)
+# Be careful if these ARE your project, but usually they aren't.
+# /.Xauthority
+# /.bash_history
+# /.bashrc
+# /.profile
+# /.wget-hsts
+# /.gitconfig
+# /.lesshst
+# /.gm_key
+
+# Tool caches and configs
+.codeium/
+.java/
+.rest-client/
+.vscode-R/
+.vscode/
+
+# Log files
+*.log
+logs/
+.ssh
+.rds
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Common output/temporary files
+nohup.out
+map.out
+*.tmp
+*.lock
+fasterq.tmp.*/
+
+# Data directories (if data shouldn't be tracked directly)
+# data/
+# Ribo-seq_datasets/
+
+# Other specific directories from your list
+# otherwd/
+# wd/
+# #Report/ # Uncomment if #Report should be ignored
+
+# Add language/framework specific ignores below (e.g., Python __pycache__)
+__pycache__/
+*.pyc
+# Ignore VS Code server state and logs
+.vscode-server/
+
+# Ignore user session / shell files
+.Xauthority
+.bash_history
+.lesshst
+.wget-hsts
+
+# Ignore SRA toolkit temp/lock files
+*.sra.lock
+*.sra.prf
+*.sra.tmp
+
+# Ignore other caches/tools
+.codeium/
+.java/
+.rest-client/
+.vscode-R/
+
+# Ignore common output files and temp dirs
+*.log
+logs/
+nohup.out
+map.out
+fasterq.tmp.*/
+
+# Ignore large data directories (adjust path/pattern if needed)
+Ribo-seq_datasets/
+
+# Ignore VS Code server state and logs
+.vscode-server/
+
+# Ignore user session / shell files
+.Xauthority
+.bash_history
+.lesshst
+.wget-hsts
+
+# Ignore SRA toolkit temp/lock files
+*.sra.lock
+*.sra.prf
+*.sra.tmp
+
+# Ignore other caches/tools
+.codeium/
+.java/
+.rest-client/
+.vscode-R/
+
+# Ignore common output files and temp dirs
+*.log
+logs/
+nohup.out
+map.out
+fasterq.tmp.*/
