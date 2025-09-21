@@ -1,0 +1,66 @@
+# ------------------------------------------------------------------
+# Configuration file for DESeq_TE_Analysis.R
+# ------------------------------------------------------------------
+
+# Color palette for all plots. Add or change colors here without
+# editing the R script. Names must match the 'Plot_Category' values.
+colors:
+  Upregulated: '#00A8A8'
+  Downregulated: '#7FD8DA'
+  'Not Significant': '#A8A8A8'
+  'Marker Gene': '#7d00f1ff'
+  'Intensified - Upregulated': '#ec811cff'
+  'Intensified - Downregulated': '#e7b382ff'
+  'Forwarded - Upregulated': '#A8A8A8'
+  'Forwarded - Downregulated': '#A8A8A8'
+  'Exclusive - Upregulated': '#a50707ff'
+  'Exclusive - Downregulated': '#cc6f6fff'
+  'Buffered - Dampened (RNA Up)': '#16777aff'
+  'Buffered - Dampened (RNA Down)': '#7b9d9eff'
+  'Buffered (Stabilized)': '#9cd1d3ff'
+  'TE-specific - Upregulated': '#3b358aff'
+  'TE-specific - Downregulated': '#a7a1e2ff'
+  'RPF-specific - Upregulated': '#A8A8A8'
+  'RPF-specific - Downregulated': '#A8A8A8'
+  'RNA-specific - Upregulated': '#A8A8A8'
+  'RNA-specific - Downregulated': '#A8A8A8'
+  'Other-TE-significant - Upregulated': '#00A8A8'
+  'Other-TE-significant - Downregulated': '#7FD8DA'
+  'TE_significant - Upregulated': '#00A8A8'
+  'TE_significant - Downregulated': '#7FD8DA'
+  'TE_significant - Intermediate': '#003366'
+
+
+# Global theme colors used by the R script for consistent styling
+theme:
+  primary: '#003366'
+  accent: '#00A8A8'
+  background: '#F9F9F9'
+  text: '#333333'
+
+
+#colors:
+#  Upregulated: '#e44040ff'
+#  Downregulated: '#354eceff'
+#  'Not Significant': '#A8A8A8'
+#  'Marker Gene': '#7d00f1ff'
+#  'Intensified - Upregulated': '#ec811cff'
+#  'Intensified - Downregulated': '#e7b382ff'
+#  'Forwarded - Upregulated': '#6e2161ff'
+#  'Forwarded - Downregulated': '#aa619eff'
+#  'Exclusive - Upregulated': '#a50707ff'
+#  'Exclusive - Downregulated': '#cc6f6fff'
+#  'Buffered - Dampened (RNA Up)': '#16777aff'
+#  'Buffered - Dampened (RNA Down)': '#7b9d9eff'
+#  'Buffered (Stabilized)': '#9cd1d3ff'
+#  'TE-specific - Upregulated': '#3b358aff'
+#  'TE-specific - Downregulated': '#a7a1e2ff'
+#  'RPF-specific - Upregulated': '#cfb000ff'
+#  'RPF-specific - Downregulated': '#dbd3a1ff'
+#  'RNA-specific - Upregulated': '#4c7e2fff'
+#  'RNA-specific - Downregulated': '#8eaa7fff'
+#  'Other-TE-significant - Upregulated': '#00A8A8'
+#  'Other-TE-significant - Downregulated': '#7FD8DA'
+#  'TE-significant - Upregulated': '#00A8A8'
+#  'TE-significant - Downregulated': '#7FD8DA'
+#  'TE_significant - Intermediate': '#1D78DA'

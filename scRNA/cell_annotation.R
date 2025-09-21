@@ -15,8 +15,21 @@ suppressPackageStartupMessages({
   library(ggpubr)
 })
 
-# Centralized Configuration -------------------------------------------------
-output_base <- "annotations"
+# Command-line Interface ----------------------------------------------------
+option_list <- list(
+  make_option(c("-r", "--rds"), type = "character", default = NULL, 
+              help = "Path to RDS file"),
+  make_option(c("-s", "--step"), type = "character", default = "all",
+              help = "Pipeline step: read_rds, singleR, markers, celliD, scCATCH, all"),
+  make_option(c("-o", "--output"), type = "character", default = "annotations",
+              help = "Base output directory [default %default]")
+)
+
+parser <- OptionParser(option_list = option_list)
+opt <- parse_args(parser)
+
+# Use provided output path (align with run.sh) and create directories
+output_base <- opt$output
 dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
 
 output_dirs <- list(
@@ -25,7 +38,6 @@ output_dirs <- list(
   celliD = file.path(output_base, "celliD"),
   scCATCH = file.path(output_base, "scCATCH")
 )
-
 lapply(output_dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 
 # Pipeline Functions --------------------------------------------------------
@@ -257,34 +269,6 @@ run_scCATCH <- function(seurat_object) {
   return(obj)
 }
 
-
-# Command-line Interface ----------------------------------------------------
-option_list <- list(
-  make_option(c("-r", "--rds"), type = "character", default = NULL, 
-              help = "Path to RDS file"),
-  make_option(c("-s", "--step"), type = "character", default = "all",
-              help = "Pipeline step: read_rds, singleR, markers, celliD, scCATCH, all"),
-  make_option(c("-o", "--output"), type = "character", default = "annotations",
-              help = "Base output directory [default %default]")
-)
-
-parser <- OptionParser(option_list = option_list)
-opt <- parse_args(parser)
-
-# Update output directory if specified
-if (opt$output != "annotations") {
-  output_base <- opt$output
-  dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
-  
-  output_dirs <- list(
-    singleR = file.path(output_base, "singleR"),
-    markers = file.path(output_base, "markers"),
-    celliD = file.path(output_base, "celliD"),
-    scCATCH = file.path(output_base, "scCATCH")
-  )
-  
-  lapply(output_dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
-}
 
 # Global object for sharing between steps
 seurat_objects <- NULL

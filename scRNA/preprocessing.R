@@ -25,17 +25,38 @@ suppressPackageStartupMessages({
   library(scales)
 })
 
-# Centralized Configuration -------------------------------------------------
-output_base <- "/mnt/80T/johan/output/full_liver_2021"
-dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
+# Command-line Interface ----------------------------------------------------
+option_list <- list(
+  make_option(c("-f", "--file"), type = "character", help = "Input CSV file (columns: sample_names, ident1, ident2)"),
+  make_option(c("-s", "--step"), type = "character", 
+              help = "Pipeline step: read_csv, process, integrate, plot, epcam, treatment, all"),
+  make_option(c("-o", "--output"), type = "character", default = NULL,
+              help = "Base output directory [overrides default output_base]")
+)
 
+parser <- OptionParser(option_list = option_list)
+opt <- parse_args(parser)
+
+# Provide a sensible default output base and directories in case -o is not passed
+output_base <- "output"
 output_dirs <- list(
   processed = file.path(output_base, "processed"),
   plots = file.path(output_base, "plots"),
   tables = file.path(output_base, "tables")
 )
-
 lapply(output_dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
+
+# If -o provided, override output_base and recreate directories
+if (!is.null(opt$output) && nzchar(opt$output)) {
+  output_base <- opt$output
+  dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
+  output_dirs <- list(
+    processed = file.path(output_base, "processed"),
+    plots = file.path(output_base, "plots"),
+    tables = file.path(output_base, "tables")
+  )
+  lapply(output_dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
+}
 
 # Define color schemes
 mycolor <- c("#CCCCCC", # gray for other
@@ -48,22 +69,39 @@ mycolor <- c("#CCCCCC", # gray for other
 
 doublet_color <- c("Doublet" = "#e35473", "Singlet" = "#54cdeb")
 
-read_samples_tsv <- function(tsv_file) {
-  # Read TSV file with sample information
-  message("Reading sample information from ", tsv_file)
+read_samples_csv <- function(csv_file) {
+  # Read CSV file with sample information
+  message("Reading sample information from ", csv_file)
   
-  samples_df <- read.delim(tsv_file, sep="\t", header=TRUE, stringsAsFactors=FALSE)
+  if (!file.exists(csv_file)) {
+    stop("Input CSV file not found: ", csv_file, call. = FALSE)
+  }
+  fi <- file.info(csv_file)
+  if (is.na(fi$size) || fi$size == 0) {
+    stop("Input CSV exists but is empty: ", csv_file, 
+         "\nPlease provide a CSV with a header and at least one sample row.", call. = FALSE)
+  }
+  
+  samples_df <- tryCatch({
+    read.csv(csv_file, header = TRUE, stringsAsFactors = FALSE)
+  }, error = function(e) {
+    stop("Failed to read CSV file: ", csv_file, "\nError: ", e$message, call. = FALSE)
+  })
+  
+  if (nrow(samples_df) == 0) {
+    stop("Input CSV has a header but no data rows. Add at least one sample row to ", csv_file, call. = FALSE)
+  }
   
   # Verify expected columns are present
   required_cols <- c("sample_names", "ident1", "ident2")
   if (!all(required_cols %in% colnames(samples_df))) {
-    stop("TSV file must contain columns: ", paste(required_cols, collapse=", "))
+    stop("CSV file must contain columns: ", paste(required_cols, collapse=", "), call. = FALSE)
   }
   
   # Save the dataframe for future steps
   saveRDS(samples_df, file.path(output_base, "samples_df.rds"))
   
-  message("Found ", nrow(samples_df), " samples in the TSV file")
+  message("Found ", nrow(samples_df), " samples in the CSV file")
   return(samples_df)
 }
 
@@ -379,62 +417,124 @@ run_and_plot_pca <- function(seurat_object, output_plots_dir) {
   
   print(similarity_plot)
 }
+
 analyze_epcam_cells <- function(seurat_object, output_dir) {
 
   message("Starting analysis of EPCAM-positive cells...")
 
-  # --- Part 1: Reliably identify EPCAM+ cells from all count layers ---
-  count_layers <- Layers(seurat_object, assay = "RNA", search = "counts")
-  if (length(count_layers) == 0) {
-    stop("Error: No 'counts' layers found in the RNA assay.", call. = FALSE)
+  # Ensure RNA assay exists
+  if(!"RNA" %in% Assays(seurat_object)) {
+    stop("RNA assay not found in Seurat object")
   }
-  
-  all_epcam_counts <- lapply(count_layers, function(layer) {
-    FetchData(seurat_object, vars = "EPCAM", assay = "RNA", layer = layer)
+
+  # Try to use a joined object first (simpler single-layer access). Fall back if JoinLayers not available.
+  seurat_for_counts <- tryCatch({
+    JoinLayers(seurat_object, assay = "RNA")
+  }, error = function(e) {
+    message("JoinLayers not available or failed: ", e$message, "; will try to extract counts directly from existing object")
+    seurat_object
   })
-  combined_epcam_counts <- do.call(rbind, all_epcam_counts)
-  epcam_positive_cells <- rownames(combined_epcam_counts)[combined_epcam_counts$EPCAM > 0]
-  
-  if (length(epcam_positive_cells) == 0) {
-    warning("No EPCAM-positive cells were found. Aborting analysis.")
+
+  # Try to fetch expression matrix in a safe order: data -> counts
+  expr_mat <- NULL
+  expr_mat <- tryCatch({
+    GetAssayData(seurat_for_counts, assay = "RNA", slot = "data")
+  }, error = function(e) NULL)
+  if(is.null(expr_mat) || !"EPCAM" %in% rownames(expr_mat)) {
+    expr_mat <- tryCatch({
+      GetAssayData(seurat_for_counts, assay = "RNA", slot = "counts")
+    }, error = function(e) NULL)
+  }
+
+  # If still NULL or EPCAM missing, inspect individual layers in the original object and sum them
+  epcam_positive_cells <- character(0)
+  if(is.null(expr_mat) || !"EPCAM" %in% rownames(expr_mat)) {
+    assay_orig <- seurat_object[["RNA"]]
+    layer_names <- names(assay_orig@layers)
+    if(length(layer_names) > 0) {
+      # Sum EPCAM across all layers if available
+      sums <- NULL
+      for(l in layer_names) {
+        layer_mat <- tryCatch({
+          as.matrix(assay_orig@layers[[l]])
+        }, error = function(e) NULL)
+        if(!is.null(layer_mat) && "EPCAM" %in% rownames(layer_mat)) {
+          vec <- as.numeric(layer_mat["EPCAM", ])
+          names(vec) <- colnames(layer_mat)
+          if(is.null(sums)) sums <- vec else sums <- sums + vec
+        }
+      }
+      if(!is.null(sums)) {
+        epcam_positive_cells <- names(sums)[which(sums > 0)]
+      }
+    }
+
+    # if still not found, try to look up features in raw slots of the original object
+    if(length(epcam_positive_cells) == 0) {
+      # try data/counts directly on original object
+      dat_try <- tryCatch({
+        GetAssayData(seurat_object, assay = "RNA", slot = "data")
+      }, error = function(e) NULL)
+      if(!is.null(dat_try) && "EPCAM" %in% rownames(dat_try)) {
+        epcam_counts <- dat_try["EPCAM", , drop = TRUE]
+        epcam_positive_cells <- names(epcam_counts)[which(epcam_counts > 0)]
+      } else {
+        cnt_try <- tryCatch({
+          GetAssayData(seurat_object, assay = "RNA", slot = "counts")
+        }, error = function(e) NULL)
+        if(!is.null(cnt_try) && "EPCAM" %in% rownames(cnt_try)) {
+          epcam_counts <- cnt_try["EPCAM", , drop = TRUE]
+          epcam_positive_cells <- names(epcam_counts)[which(epcam_counts > 0)]
+        }
+      }
+    }
+  } else {
+    # expr_mat contains either data or counts and has EPCAM row
+    epcam_counts <- expr_mat["EPCAM", , drop = TRUE]
+    epcam_positive_cells <- names(epcam_counts)[which(epcam_counts > 0)]
+  }
+
+  if(length(epcam_positive_cells) == 0) {
+    warning("No EPCAM-positive cells were found. Aborting EPCAM analysis.")
     return(seurat_object)
   }
-  
+
   seurat_object$epcam_status <- ifelse(Cells(seurat_object) %in% epcam_positive_cells, "EPCAM_Positive", "EPCAM_Negative")
-  
-  # --- Part 2: Calculate Statistics ---
-  message("Calculating statistics for EPCAM+ cells...")
-  # ... (statistics calculation code) ...
-  
-  
-  # --- Part 3: THE DEFINITIVE FIX - Join Layers before running presto ---
-  # This creates a temporary object with a simplified layer structure that presto can understand.
-  # This is the most important step to fix the error.
+
+  # Join layers to prepare object for presto (wrapped in tryCatch to be robust)
   message("Joining layers to prepare for differential expression analysis...")
-  seurat_joined <- JoinLayers(seurat_object, assay = "RNA")
+  seurat_joined <- tryCatch({
+    JoinLayers(seurat_object, assay = "RNA")
+  }, error = function(e1) {
+    message("JoinLayers(seurat_object, assay='RNA') failed: ", e1$message)
+    tryCatch({
+      JoinLayers(seurat_object)
+    }, error = function(e2) {
+      message("JoinLayers(seurat_object) also failed: ", e2$message, "; proceeding with original Seurat object (presto may still fail if layers are incompatible)")
+      seurat_object
+    })
+  })
 
-
-  # --- Part 4: Find Marker Genes using presto on the NEW joined object ---
+  # Run presto (wilcoxauc) on the joined object. This should now find a 'data' layer.
   message("Finding characteristic genes for EPCAM+ cells with presto...")
-  
-  # Now, we run wilcoxauc on the 'seurat_joined' object.
-  # This will now work because 'seurat_joined' has a single 'data' layer.
-  epcam_markers_presto <- wilcoxauc(seurat_joined, group_by = "epcam_status", 
-                                    assay = "RNA", layer = "data")
-  
+  epcam_markers_presto <- tryCatch({
+    wilcoxauc(seurat_joined, group_by = "epcam_status", assay = "RNA", layer = "data")
+  }, error = function(e) {
+    stop("presto::wilcoxauc failed: ", e$message)
+  })
+
   epcam_enriched_markers <- epcam_markers_presto %>%
     filter(group == "EPCAM_Positive") %>%
     arrange(-auc)
 
-  # --- Part 5: Save Results ---
   output_file_path <- file.path(output_dir, "presto_EPCAM_positive_marker_genes.csv")
   write.csv(epcam_enriched_markers, file = output_file_path, row.names = FALSE)
-  
+
   message(sprintf("Found %d characteristic genes for EPCAM+ cells.", nrow(epcam_enriched_markers)))
   message("Full list saved to: ", output_file_path)
   cat("\n--- Top 10 Characteristic Genes in EPCAM+ Cells (via presto) ---\n")
   print(head(epcam_enriched_markers, 10))
-  
+
   return(seurat_object)
 }
 
@@ -479,21 +579,10 @@ plot_split_umap_by_treatment <- function(seurat_object, output_dir) {
   print(p)
 }
 
-# Command-line Interface ----------------------------------------------------
-
-option_list <- list(
-  make_option(c("-f", "--file"), type = "character", help = "Input TSV file"),
-  make_option(c("-s", "--step"), type = "character", 
-              help = "Pipeline step: read_tsv, process, integrate, plot, epcam, treatment, all")
-)
-
-parser <- OptionParser(option_list = option_list)
-opt <- parse_args(parser)
-
 execute_step <- function(step) {
   switch(step,
-    read_tsv = {
-      read_samples_tsv(opt$file)
+    read_csv = {
+      read_samples_csv(opt$file)
     },
     process = {
       samples_df <- readRDS(file.path(output_base, "samples_df.rds"))
@@ -529,14 +618,14 @@ execute_step <- function(step) {
       plot_split_umap_by_treatment(TN_combined, output_dirs$plots)
       },
     all = {
-      execute_step("read_tsv")
+      execute_step("read_csv")
       execute_step("process")
       execute_step("integrate")
       execute_step("epcam")
       execute_step("treatment")
       execute_step("plot")
     },
-    stop("Invalid step. Valid options: read_tsv, process, integrate, plot, all")
+    stop("Invalid step. Valid options: read_csv, process, integrate, plot, all")
   )
 }
 
