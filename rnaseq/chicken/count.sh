@@ -16,7 +16,7 @@ Ref_Ara="/home/johan/johan/reference/chicken"
 GTF="${Ref_Ara}/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf"
 
 # configuration
-STRANDED="${STRANDED:-no}"     # one of: yes | no | reverse
+STRANDED="${STRANDED:-reverse}"     # one of: yes | no | reverse
 MAX_CONCURRENT="${MAX_CONCURRENT:-4}"
 
 # Detect optional flags supported by your htseq-count version

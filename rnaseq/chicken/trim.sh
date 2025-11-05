@@ -12,13 +12,14 @@ RAW="/mnt/2_80T/Data/TS250721001"
 LOG="${OUTPUT}/log"
 METADATA="/home/johan/pipeline/rnaseq/chicken/sample.csv"
 
-# --- simple knobs
-CUTADAPT_THREADS=1
+AVAILABLE_CORES=$(nproc)
+CUTADAPT_THREADS=$((AVAILABLE_CORES / 2 > 0 ? AVAILABLE_CORES / 2 : 1))
 FASTQC_THREADS=1
-MAX_CONCURRENT=8
+MAX_CONCURRENT=$AVAILABLE_CORES
+
 # Replace single ADAPTER with pair-specific adapters:
-ADAPTER_R1="CTGTCTCTTATACACATCT"
-ADAPTER_R2="CTGTCTCTTATACACATCT"
+ADAPTER_R1="ACTGTCTCTTATACACATCT"
+ADAPTER_R2="ACTGTCTCTTATACACATCT"
 MIN_LENGTH=20
 
 # ensure base dirs exist and are writable
@@ -57,29 +58,32 @@ for sample in "${!s_seen[@]}"; do
   in1="${r1_map[$sample]:-}"
   in2="${r2_map[$sample]:-}"
   outdir="${OUTPUT}/${sample}/trim"
-  if [[ -n "$in1" && -n "$in2" ]]; then
+  raw_link_dir="${OUTPUT}/${sample}/raw"
+  mkdir -p "${raw_link_dir}"
+
+  if [[ -n "$in1" ]]; then
     inp1="${RAW}/${in1}"
+    # Create symlink for R1 raw data in sample-specific raw folder
+    ln -sf "$inp1" "${raw_link_dir}/${in1##*/}"
+  fi
+
+  if [[ -n "$in2" ]]; then
     inp2="${RAW}/${in2}"
-    if [[ -e "$inp1" && -e "$inp2" ]]; then
-      out1="${outdir}/${sample}_R1.trim.fastq.gz"
-      out2="${outdir}/${sample}_R2.trim.fastq.gz"
-      pairs+=("${inp1}<<<${inp2}<<<${out1}<<<${out2}<<<${outdir}<<<${ADAPTER_R1}<<<${ADAPTER_R2}")
-    else
-      [[ -e "$inp1" ]] && singles+=("${inp1}<<<${outdir}/${sample}_R1.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R1}")
-      [[ -e "$inp2" ]] && singles+=("${inp2}<<<${outdir}/${sample}_R2.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R2}")
-      [[ -e "$inp1" || -e "$inp2" ]] || echo "WARN: missing both mates for ${sample} (${inp1}, ${inp2})"
-    fi
+    # Create symlink for R2 raw data in sample-specific raw folder
+    ln -sf "$inp2" "${raw_link_dir}/${in2##*/}"
+  fi
+
+  if [[ -n "$inp1" && -n "$inp2" && -e "$inp1" && -e "$inp2" ]]; then
+    out1="${outdir}/${sample}_R1.trim.fastq.gz"
+    out2="${outdir}/${sample}_R2.trim.fastq.gz"
+    pairs+=("${inp1}<<<${inp2}<<<${out1}<<<${out2}<<<${outdir}<<<${ADAPTER_R1}<<<${ADAPTER_R2}")
   else
-    # Only one mate listed in metadata -> SE
-    if [[ -n "$in1" ]]; then
-      inp="${RAW}/${in1}"; [[ -e "$inp" ]] || { echo "WARN: missing ${inp} (skip)"; continue; }
-      singles+=("${inp}<<<${outdir}/${sample}_R1.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R1}")
-    elif [[ -n "$in2" ]]; then
-      inp="${RAW}/${in2}"; [[ -e "$inp" ]] || { echo "WARN: missing ${inp} (skip)"; continue; }
-      singles+=("${inp}<<<${outdir}/${sample}_R2.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R2}")
-    fi
+    [[ -e "$inp1" ]] && singles+=("${inp1}<<<${outdir}/${sample}_R1.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R1}")
+    [[ -e "$inp2" ]] && singles+=("${inp2}<<<${outdir}/${sample}_R2.trim.fastq.gz<<<${outdir}<<<${ADAPTER_R2}")
+    [[ -e "$inp1" || -e "$inp2" ]] || echo "WARN: missing both mates for ${sample} (${inp1}, ${inp2})"
   fi
 done
+
 
 if (( ${#pairs[@]} + ${#singles[@]} == 0 )); then
   echo "No valid inputs. Exit."
