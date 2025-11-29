@@ -55,7 +55,7 @@ def _parse_sample_to_meta(sample_label):
         rh_num    = int(m.group(2))
         tissue    = m.group(3).lower()
         rep       = int(m.group(4))
-        egg = "high_egg" if 1 <= rh_num <= 5 else "low_egg"
+        egg = "high" if 1 <= rh_num <= 5 else "low"
         subj = f"{rh_prefix}{rh_num}"
         # New (lowercase) schema used by DESeq driver scripts
         row_new = {
@@ -80,12 +80,12 @@ def _parse_sample_to_meta(sample_label):
             "subject": "NA",
             "tissue": "NA",
             "replicate": "NA",
-            "egg_production": "low_egg",
+            "egg_production": "low",
             "assay_type": "RNA"
         }
         row_caps = {
             "SampleID": sample_label,
-            "Treatment": "low_egg",
+            "Treatment": "low",
             "Type": "rna",
             "Replicate": "NA"
         }
@@ -146,9 +146,24 @@ def discover_files(data_folder, mode):
             files = glob.glob(os.path.join(base, "count", "*.htseq.*.counts.tsv"))
             if not files:
                 files = glob.glob(os.path.join(base, "count", "*.htseq.*.tsv"))
-            for f in sorted(files):
+
+            # Select only ONE file per sample based on priority order
+            # Priority: reverse > no > yes > (any other)
+            selected_file = None
+            if files:
+                # Sort by priority: prefer 'reverse' strandedness
+                priority_order = ['reverse', 'no', 'yes']
+                for priority in priority_order:
+                    matching = [f for f in files if f'.htseq.{priority}.' in f]
+                    if matching:
+                        selected_file = sorted(matching)[0]  # Take first if multiple matches
+                        break
+                # If no priority match, just take the first file
+                if selected_file is None:
+                    selected_file = sorted(files)[0]
+
                 lbl = sub  # <--- crucial: use folder (sample) name
-                found.append((f, lbl))
+                found.append((selected_file, lbl))
         elif mode == "star":
             star_dir = os.path.join(base, "STAR_out")
             expected = os.path.join(star_dir, f"{sub}.HTseq_report")

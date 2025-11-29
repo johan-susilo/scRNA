@@ -37,12 +37,12 @@ RH305_1_R1_001.fastq.gz,RH305_1_R1_001,RH305_ovary_rep1,chicken,RH305,305,ovary,
 RH310_1_R2_001.fastq.gz,RH310_1_R2_001,RH310_ovary_rep1,chicken,RH310,310,ovary,1,1,low_egg,2
 RH3_2_R1_001.fastq.gz,RH3_2_R1_001,RH3_ovary_rep2,chicken,RH3,3,ovary,2,2,high_egg,1
 RH5_2_R2_001.fastq.gz,RH5_2_R2_001,RH5_ovary_rep2,chicken,RH5,5,ovary,2,2,high_egg,2
-RH2_1_R1_001.fastq.gz,RH2_1_R1_001,RH2_ovary_rep1,chicken,RH2,2,ovary,1,1,high_egg,1
+RH2_1_R1_001.fastq.gz,RH2_1_R1_001,RH6_uterus_rep1,chicken,RH6,6,uterus,4,1,high_egg,1
 RH305_1_R2_001.fastq.gz,RH305_1_R2_001,RH305_ovary_rep1,chicken,RH305,305,ovary,1,1,low_egg,2
 RH310_2_R1_001.fastq.gz,RH310_2_R1_001,RH310_ovary_rep2,chicken,RH310,310,ovary,2,2,low_egg,1
 RH3_2_R2_001.fastq.gz,RH3_2_R2_001,RH3_ovary_rep2,chicken,RH3,3,ovary,2,2,high_egg,2
 RH5_4_R1_001.fastq.gz,RH5_4_R1_001,RH5_uterus_rep1,chicken,RH5,5,uterus,4,1,high_egg,1
-RH2_1_R2_001.fastq.gz,RH2_1_R2_001,RH2_ovary_rep1,chicken,RH2,2,ovary,1,1,high_egg,2
+RH2_1_R2_001.fastq.gz,RH2_1_R2_001,RH6_uterus_rep1,chicken,RH6,6,uterus,4,1,high_egg,2
 RH305_2_R1_001.fastq.gz,RH305_2_R1_001,RH305_ovary_rep2,chicken,RH305,305,ovary,2,2,low_egg,1
 RH310_2_R2_001.fastq.gz,RH310_2_R2_001,RH310_ovary_rep2,chicken,RH310,310,ovary,2,2,low_egg,2
 RH3_4_R1_001.fastq.gz,RH3_4_R1_001,RH3_uterus_rep1,chicken,RH3,3,uterus,4,1,high_egg,1

@@ -46,6 +46,14 @@ command -v htseq-count >/dev/null 2>&1 || { echo "htseq-count not in PATH"; exit
 
 echo "Using strandedness=${STRANDED}, MAX_CONCURRENT=${MAX_CONCURRENT}, SORT_THREADS=${SORT_THREADS}"
 
+# ===========================================
+# CLEANUP OLD TEMP FILES AT START
+# ===========================================
+echo "Cleaning up old samtools temp files..."
+find "${OUTPUT}" -type f -name "*.name.sorted.bam.tmp.*.bam" -delete 2>/dev/null || true
+find "${OUTPUT}" -type f -name "*.tmp.*.bam" -delete 2>/dev/null || true
+echo "Cleanup complete."
+
 # collect unique samples
 declare -A seen
 samples=()
@@ -79,16 +87,31 @@ run_one() {
   local s="$1" bam="$2" countdir="$3"
   mkdir -p "${countdir}"
 
+  # Create unique temp directory for this sample to avoid conflicts
+  local temp_dir="${countdir}/samtools_tmp_${s}_$$"
+  mkdir -p "${temp_dir}"
+  
+  # Clean up any existing temp files for this sample
+  rm -f "${countdir}/${s}.name.sorted.bam.tmp."*.bam 2>/dev/null || true
+  rm -f "${countdir}"/*.tmp.*.bam 2>/dev/null || true
+
   # name-sort BAM for HTSeq paired-end counting
   name_bam="${countdir}/${s}.name.sorted.bam"
-  echo "Name-sorting BAM for ${s} with ${SORT_THREADS} threads..."
-  samtools sort -n -@ "${SORT_THREADS}" -o "${name_bam}" "${bam}"
+  temp_prefix="${temp_dir}/${s}.tmp"
+  
+  echo "[$(date '+%H:%M:%S')] Name-sorting BAM for ${s} with ${SORT_THREADS} threads..."
+  
+  # Use -T to specify unique temp prefix for this sample
+  samtools sort -n -@ "${SORT_THREADS}" \
+    -T "${temp_prefix}" \
+    -o "${name_bam}" \
+    "${bam}" 2>&1 | tee -a "${LOG}/${s}.samtools.log"
 
-  # htseq-count (paired-end fragments inferred from name-sorted input; no '-p' here)
+  # htseq-count (paired-end fragments inferred from name-sorted input)
   out_counts="${countdir}/${s}.htseq.${STRANDED}.counts.tsv"
   out_log="${countdir}/${s}.htseq.${STRANDED}.log"
 
-  echo "HTSeq-count for ${s} -> ${out_counts}"
+  echo "[$(date '+%H:%M:%S')] HTSeq-count for ${s} -> ${out_counts}"
   htseq-count \
     -f bam \
     -r name \
@@ -100,10 +123,15 @@ run_one() {
     "${name_bam}" \
     "${GTF}" > "${out_counts}" 2> "${out_log}"
 
-  # optional: remove intermediate to save space (keep if KEEP_NAME_BAM=1)
+  # Clean up temp directory
+  rm -rf "${temp_dir}" 2>/dev/null || true
+
+  # optional: remove intermediate name-sorted BAM to save space
   if [[ "${KEEP_NAME_BAM:-0}" != "1" ]]; then
     rm -f "${name_bam}" || true
   fi
+  
+  echo "[$(date '+%H:%M:%S')] Completed: ${s}"
 }
 
 export -f run_one
@@ -111,7 +139,8 @@ export OUTPUT LOG GTF STRANDED SORT_THREADS KEEP_NAME_BAM HTSEQ_OPTIONAL_FLAGS
 
 # parallelize across samples
 if command -v parallel >/dev/null 2>&1; then
-  printf "%b\n" "${jobs[@]}" | parallel -j "${MAX_CONCURRENT}" --colsep '\t' --lb \
+  echo "Running with GNU parallel (${MAX_CONCURRENT} concurrent jobs)..."
+  printf "%b\n" "${jobs[@]}" | parallel -j "${MAX_CONCURRENT}" --colsep '\t' \
     'run_one {1} {2} {3}'
 else
   echo "GNU parallel not found; running with up to ${MAX_CONCURRENT} background jobs."
@@ -125,5 +154,33 @@ else
   wait
 fi
 
-echo "HTSeq-count done. Outputs in ${OUTPUT}/<sample>/count/*.htseq.${STRANDED}.counts.tsv"
+# ===========================================
+# FINAL CLEANUP
+# ===========================================
+echo ""
+echo "Performing final cleanup of temp files..."
+find "${OUTPUT}" -type f -name "*.tmp.*.bam" -delete 2>/dev/null || true
+find "${OUTPUT}" -type d -name "samtools_tmp_*" -exec rm -rf {} + 2>/dev/null || true
+
+# ===========================================
+# SUMMARY
+# ===========================================
+echo ""
+echo "================================"
+echo "HTSEQ-COUNT COMPLETED"
+echo "================================"
+
+success_count=0
+for s in "${samples[@]}"; do
+  counts_file="${OUTPUT}/${s}/count/${s}.htseq.${STRANDED}.counts.tsv"
+  if [[ -s "${counts_file}" ]]; then
+    ((success_count++))
+  fi
+done
+
+echo "Successful: ${success_count}/${#samples[@]} samples"
+echo "Output: ${OUTPUT}/<sample>/count/*.htseq.${STRANDED}.counts.tsv"
+echo "Logs: ${LOG}/"
+echo ""
+
 date

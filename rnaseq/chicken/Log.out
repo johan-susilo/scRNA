@@ -2,513 +2,275 @@ STAR version=2.7.11b
 STAR compilation time,server,dir=2025-02-05T21:21:17+08:00 :/home/johan/tool/STAR/source
 STAR git: On branch master ; commit b1edc1208d91a53bf40ebae8669f71d50b994851 ; diff files: 
 ##### Command Line:
-STAR --runThreadN 8 --runMode genomeGenerate --genomeDir /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150 --genomeFastaFiles /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa --sjdbGTFfile /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf --sjdbOverhang 150 --genomeSAindexNbases 13
+STAR --genomeDir /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150 --genomeLoad Remove
 ##### Initial USER parameters from Command Line:
 ###### All USER parameters from Command Line:
-runThreadN                    8     ~RE-DEFINED
-runMode                       genomeGenerate        ~RE-DEFINED
 genomeDir                     /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150     ~RE-DEFINED
-genomeFastaFiles              /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa        ~RE-DEFINED
-sjdbGTFfile                   /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf     ~RE-DEFINED
-sjdbOverhang                  150     ~RE-DEFINED
-genomeSAindexNbases           13     ~RE-DEFINED
+genomeLoad                    Remove     ~RE-DEFINED
 ##### Finished reading parameters from all sources
 
 ##### Final user re-defined parameters-----------------:
-runMode                           genomeGenerate   
-runThreadN                        8
 genomeDir                         /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150
-genomeFastaFiles                  /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa   
-genomeSAindexNbases               13
-sjdbGTFfile                       /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf
-sjdbOverhang                      150
+genomeLoad                        Remove
 
 -------------------------------
 ##### Final effective command line:
-STAR   --runMode genomeGenerate      --runThreadN 8   --genomeDir /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150   --genomeFastaFiles /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa      --genomeSAindexNbases 13   --sjdbGTFfile /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf   --sjdbOverhang 150
+STAR   --genomeDir /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150   --genomeLoad Remove
 ----------------------------------------
 
 Number of fastq files for each mate = 1
 ParametersSolo: --soloCellFilterType CellRanger2.2 filtering parameters:  3000 0.99 10
 Finished loading and checking parameters
---genomeDir directory exists and will be overwritten: /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150/
-!!!!! WARNING: Could not move Log.out file from ./Log.out into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150/Log.out. Will keep ./Log.out
+Reading genome generation parameters:
+### STAR   --runMode genomeGenerate      --runThreadN 8   --genomeDir /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150   --genomeFastaFiles /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa      --genomeSAindexNbases 13   --sjdbGTFfile /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf   --sjdbOverhang 150
+### GstrandBit=32
+versionGenome                 2.7.4a     ~RE-DEFINED
+genomeType                    Full     ~RE-DEFINED
+genomeFastaFiles              /home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa        ~RE-DEFINED
+genomeSAindexNbases           13     ~RE-DEFINED
+genomeChrBinNbits             18     ~RE-DEFINED
+genomeSAsparseD               1     ~RE-DEFINED
+genomeTransformType           None     ~RE-DEFINED
+genomeTransformVCF            -     ~RE-DEFINED
+sjdbOverhang                  150     ~RE-DEFINED
+sjdbFileChrStartEnd           -        ~RE-DEFINED
+sjdbGTFfile                   /home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf     ~RE-DEFINED
+sjdbGTFchrPrefix              -     ~RE-DEFINED
+sjdbGTFfeatureExon            exon     ~RE-DEFINED
+sjdbGTFtagExonParentTranscripttranscript_id     ~RE-DEFINED
+sjdbGTFtagExonParentGene      gene_id     ~RE-DEFINED
+sjdbInsertSave                Basic     ~RE-DEFINED
+genomeFileSizes               1168822824   9292985777        ~RE-DEFINED
+Genome version is compatible with current STAR
+Number of real (reference) chromosomes= 214
+1	1	196449156	0
+2	2	149539284	196608000
+3	3	110642502	346292224
+4	4	90861225	457179136
+5	5	59506338	548143104
+6	6	36220557	607649792
+7	7	36382834	644087808
+8	8	29578256	680525824
+9	9	23733309	710148096
+10	10	20453248	734003200
+11	11	19638187	754712576
+12	12	20119077	774373376
+13	13	17905061	794558464
+14	14	15331188	812646400
+15	15	12703657	828112896
+16	16	2706039	840957952
+17	17	11092391	843841536
+18	18	11623896	855113728
+19	19	10455293	866910208
+20	20	14265659	877395968
+21	21	6970754	891813888
+22	22	4686657	898891776
+23	23	6253421	903610368
+24	24	6478339	909901824
+25	25	3067737	916455424
+26	26	5349051	919601152
+27	27	5228753	925106176
+28	28	5437364	930349056
+29	29	726478	935854080
+30	30	755666	936640512
+31	31	2457334	937426944
+32	32	125424	940048384
+33	33	3839931	940310528
+34	34	3469343	944242688
+35	35	554126	947912704
+36	36	358375	948699136
+37	37	157853	949223424
+38	38	667312	949485568
+39	39	177356	950272000
+40	W	9109940	950534144
+41	Z	86044486	959709184
+42	MT	16784	1045954560
+43	MU179268.1	454552	1046216704
+44	MU179272.1	447004	1046740992
+45	MU179273.1	279492	1047265280
+46	MU179261.1	259507	1047789568
+47	MU179263.1	244274	1048051712
+48	MU179277.1	243023	1048313856
+49	MU179278.1	239848	1048576000
+50	MU179258.1	236755	1048838144
+51	MU179274.1	219221	1049100288
+52	JAENSK010000538.1	184108	1049362432
+53	JAENSK010000459.1	183934	1049624576
+54	MU179266.1	179921	1049886720
+55	JAENSK010000565.1	172381	1050148864
+56	MU179269.1	157377	1050411008
+57	JAENSK010000461.1	147375	1050673152
+58	MU179276.1	145889	1050935296
+59	MU179275.1	142519	1051197440
+60	MU179270.1	139882	1051459584
+61	MU179264.1	135931	1051721728
+62	JAENSK010000584.1	132137	1051983872
+63	JAENSK010000603.1	128647	1052246016
+64	JAENSK010000462.1	123103	1052508160
+65	JAENSK010000484.1	122554	1052770304
+66	JAENSK010000547.1	121826	1053032448
+67	JAENSK010000573.1	121294	1053294592
+68	JAENSK010000539.1	107179	1053556736
+69	MU179259.1	105159	1053818880
+70	JAENSK010000419.1	105149	1054081024
+71	JAENSK010000526.1	103662	1054343168
+72	JAENSK010000532.1	102867	1054605312
+73	JAENSK010000580.1	102453	1054867456
+74	JAENSK010000602.1	99652	1055129600
+75	MU179260.1	99000	1055391744
+76	JAENSK010000527.1	96352	1055653888
+77	JAENSK010000606.1	95042	1055916032
+78	JAENSK010000607.1	94594	1056178176
+79	MU179279.1	92785	1056440320
+80	JAENSK010000601.1	91947	1056702464
+81	MU179265.1	90962	1056964608
+82	JAENSK010000409.1	89875	1057226752
+83	MU179271.1	88251	1057488896
+84	JAENSK010000541.1	83855	1057751040
+85	MU179262.1	83545	1058013184
+86	JAENSK010000585.1	82910	1058275328
+87	JAENSK010000600.1	77924	1058537472
+88	JAENSK010000608.1	77453	1058799616
+89	JAENSK010000002.1	76880	1059061760
+90	JAENSK010000296.1	76531	1059323904
+91	JAENSK010000579.1	76213	1059586048
+92	JAENSK010000598.1	75927	1059848192
+93	JAENSK010000533.1	75790	1060110336
+94	JAENSK010000604.1	73711	1060372480
+95	JAENSK010000609.1	73086	1060634624
+96	JAENSK010000543.1	72665	1060896768
+97	JAENSK010000416.1	72078	1061158912
+98	JAENSK010000596.1	71264	1061421056
+99	JAENSK010000540.1	70535	1061683200
+100	JAENSK010000420.1	70221	1061945344
+101	JAENSK010000544.1	68472	1062207488
+102	JAENSK010000610.1	66990	1062469632
+103	JAENSK010000546.1	65185	1062731776
+104	JAENSK010000291.1	64959	1062993920
+105	JAENSK010000611.1	64784	1063256064
+106	MU179267.1	63726	1063518208
+107	JAENSK010000542.1	62949	1063780352
+108	JAENSK010000437.1	62499	1064042496
+109	JAENSK010000466.1	61860	1064304640
+110	JAENSK010000612.1	61262	1064566784
+111	JAENSK010000613.1	60993	1064828928
+112	JAENSK010000483.1	60241	1065091072
+113	JAENSK010000614.1	60148	1065353216
+114	JAENSK010000534.1	59700	1065615360
+115	JAENSK010000615.1	58765	1065877504
+116	JAENSK010000616.1	57327	1066139648
+117	JAENSK010000617.1	57283	1066401792
+118	JAENSK010000571.1	56807	1066663936
+119	JAENSK010000572.1	56774	1066926080
+120	JAENSK010000465.1	56291	1067188224
+121	JAENSK010000460.1	56170	1067450368
+122	JAENSK010000618.1	55004	1067712512
+123	JAENSK010000417.1	54963	1067974656
+124	JAENSK010000599.1	54073	1068236800
+125	JAENSK010000410.1	52746	1068498944
+126	JAENSK010000448.1	52716	1068761088
+127	JAENSK010000384.1	52620	1069023232
+128	JAENSK010000438.1	52169	1069285376
+129	JAENSK010000619.1	51700	1069547520
+130	JAENSK010000581.1	51278	1069809664
+131	JAENSK010000034.1	50781	1070071808
+132	JAENSK010000605.1	50063	1070333952
+133	JAENSK010000621.1	49896	1070596096
+134	JAENSK010000620.1	49878	1070858240
+135	JAENSK010000622.1	49236	1071120384
+136	JAENSK010000623.1	48223	1071382528
+137	JAENSK010000568.1	48159	1071644672
+138	JAENSK010000624.1	48023	1071906816
+139	JAENSK010000625.1	47344	1072168960
+140	JAENSK010000626.1	47336	1072431104
+141	JAENSK010000576.1	46453	1072693248
+142	JAENSK010000627.1	45670	1072955392
+143	JAENSK010000586.1	45339	1073217536
+144	JAENSK010000628.1	44737	1073479680
+145	JAENSK010000629.1	44416	1073741824
+146	JAENSK010000630.1	44091	1074003968
+147	JAENSK010000452.1	44029	1074266112
+148	JAENSK010000545.1	43858	1074528256
+149	JAENSK010000592.1	43833	1074790400
+150	JAENSK010000631.1	43804	1075052544
+151	JAENSK010000632.1	43447	1075314688
+152	JAENSK010000418.1	43198	1075576832
+153	JAENSK010000001.1	42181	1075838976
+154	JAENSK010000633.1	41869	1076101120
+155	JAENSK010000634.1	41187	1076363264
+156	JAENSK010000635.1	40905	1076625408
+157	JAENSK010000636.1	40485	1076887552
+158	JAENSK010000477.1	39716	1077149696
+159	JAENSK010000478.1	39622	1077411840
+160	JAENSK010000383.1	39239	1077673984
+161	JAENSK010000637.1	38749	1077936128
+162	JAENSK010000033.1	38338	1078198272
+163	JAENSK010000638.1	38267	1078460416
+164	JAENSK010000639.1	38098	1078722560
+165	JAENSK010000593.1	37288	1078984704
+166	JAENSK010000640.1	37156	1079246848
+167	JAENSK010000587.1	37135	1079508992
+168	JAENSK010000594.1	36282	1079771136
+169	JAENSK010000642.1	36169	1080033280
+170	JAENSK010000641.1	36049	1080295424
+171	JAENSK010000597.1	35936	1080557568
+172	JAENSK010000595.1	35597	1080819712
+173	JAENSK010000643.1	34455	1081081856
+174	JAENSK010000644.1	32761	1081344000
+175	JAENSK010000645.1	32129	1081606144
+176	JAENSK010000449.1	31960	1081868288
+177	JAENSK010000646.1	29996	1082130432
+178	JAENSK010000647.1	29845	1082392576
+179	JAENSK010000648.1	29612	1082654720
+180	JAENSK010000479.1	28486	1082916864
+181	JAENSK010000588.1	28217	1083179008
+182	JAENSK010000589.1	27687	1083441152
+183	JAENSK010000295.1	27394	1083703296
+184	JAENSK010000649.1	27008	1083965440
+185	JAENSK010000650.1	26690	1084227584
+186	JAENSK010000651.1	26680	1084489728
+187	JAENSK010000652.1	25600	1084751872
+188	JAENSK010000653.1	25356	1085014016
+189	JAENSK010000654.1	24872	1085276160
+190	JAENSK010000082.1	24491	1085538304
+191	JAENSK010000655.1	24165	1085800448
+192	JAENSK010000294.1	24076	1086062592
+193	JAENSK010000083.1	23670	1086324736
+194	JAENSK010000656.1	23651	1086586880
+195	JAENSK010000657.1	22200	1086849024
+196	JAENSK010000658.1	20719	1087111168
+197	JAENSK010000659.1	20625	1087373312
+198	JAENSK010000660.1	20391	1087635456
+199	JAENSK010000661.1	20277	1087897600
+200	JAENSK010000662.1	17176	1088159744
+201	JAENSK010000663.1	16695	1088421888
+202	JAENSK010000664.1	15631	1088684032
+203	JAENSK010000665.1	13796	1088946176
+204	JAENSK010000666.1	9587	1089208320
+205	JAENSK010000667.1	9004	1089470464
+206	JAENSK010000668.1	5394	1089732608
+207	JAENSK010000669.1	4183	1089994752
+208	JAENSK010000670.1	3676	1090256896
+209	JAENSK010000671.1	3291	1090519040
+210	JAENSK010000672.1	2948	1090781184
+211	JAENSK010000673.1	2415	1091043328
+212	JAENSK010000674.1	2044	1091305472
+213	JAENSK010000675.1	1713	1091567616
+214	JAENSK010000676.1	1437	1091829760
+--sjdbOverhang = 150 taken from the generated genome
+Started loading the genome: Wed Nov  5 20:57:15 2025
 
-Sep 18 21:46:02 ... starting to generate Genome files
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 0  "1" chrStart: 0
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 1  "2" chrStart: 196608000
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 2  "3" chrStart: 346292224
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 3  "4" chrStart: 457179136
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 4  "5" chrStart: 548143104
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 5  "6" chrStart: 607649792
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 6  "7" chrStart: 644087808
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 7  "8" chrStart: 680525824
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 8  "9" chrStart: 710148096
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 9  "10" chrStart: 734003200
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 10  "11" chrStart: 754712576
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 11  "12" chrStart: 774373376
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 12  "13" chrStart: 794558464
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 13  "14" chrStart: 812646400
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 14  "15" chrStart: 828112896
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 15  "16" chrStart: 840957952
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 16  "17" chrStart: 843841536
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 17  "18" chrStart: 855113728
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 18  "19" chrStart: 866910208
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 19  "20" chrStart: 877395968
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 20  "21" chrStart: 891813888
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 21  "22" chrStart: 898891776
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 22  "23" chrStart: 903610368
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 23  "24" chrStart: 909901824
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 24  "25" chrStart: 916455424
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 25  "26" chrStart: 919601152
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 26  "27" chrStart: 925106176
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 27  "28" chrStart: 930349056
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 28  "29" chrStart: 935854080
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 29  "30" chrStart: 936640512
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 30  "31" chrStart: 937426944
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 31  "32" chrStart: 940048384
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 32  "33" chrStart: 940310528
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 33  "34" chrStart: 944242688
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 34  "35" chrStart: 947912704
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 35  "36" chrStart: 948699136
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 36  "37" chrStart: 949223424
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 37  "38" chrStart: 949485568
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 38  "39" chrStart: 950272000
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 39  "W" chrStart: 950534144
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 40  "Z" chrStart: 959709184
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 41  "MT" chrStart: 1045954560
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 42  "MU179268.1" chrStart: 1046216704
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 43  "MU179272.1" chrStart: 1046740992
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 44  "MU179273.1" chrStart: 1047265280
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 45  "MU179261.1" chrStart: 1047789568
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 46  "MU179263.1" chrStart: 1048051712
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 47  "MU179277.1" chrStart: 1048313856
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 48  "MU179278.1" chrStart: 1048576000
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 49  "MU179258.1" chrStart: 1048838144
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 50  "MU179274.1" chrStart: 1049100288
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 51  "JAENSK010000538.1" chrStart: 1049362432
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 52  "JAENSK010000459.1" chrStart: 1049624576
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 53  "MU179266.1" chrStart: 1049886720
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 54  "JAENSK010000565.1" chrStart: 1050148864
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 55  "MU179269.1" chrStart: 1050411008
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 56  "JAENSK010000461.1" chrStart: 1050673152
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 57  "MU179276.1" chrStart: 1050935296
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 58  "MU179275.1" chrStart: 1051197440
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 59  "MU179270.1" chrStart: 1051459584
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 60  "MU179264.1" chrStart: 1051721728
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 61  "JAENSK010000584.1" chrStart: 1051983872
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 62  "JAENSK010000603.1" chrStart: 1052246016
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 63  "JAENSK010000462.1" chrStart: 1052508160
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 64  "JAENSK010000484.1" chrStart: 1052770304
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 65  "JAENSK010000547.1" chrStart: 1053032448
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 66  "JAENSK010000573.1" chrStart: 1053294592
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 67  "JAENSK010000539.1" chrStart: 1053556736
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 68  "MU179259.1" chrStart: 1053818880
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 69  "JAENSK010000419.1" chrStart: 1054081024
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 70  "JAENSK010000526.1" chrStart: 1054343168
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 71  "JAENSK010000532.1" chrStart: 1054605312
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 72  "JAENSK010000580.1" chrStart: 1054867456
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 73  "JAENSK010000602.1" chrStart: 1055129600
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 74  "MU179260.1" chrStart: 1055391744
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 75  "JAENSK010000527.1" chrStart: 1055653888
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 76  "JAENSK010000606.1" chrStart: 1055916032
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 77  "JAENSK010000607.1" chrStart: 1056178176
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 78  "MU179279.1" chrStart: 1056440320
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 79  "JAENSK010000601.1" chrStart: 1056702464
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 80  "MU179265.1" chrStart: 1056964608
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 81  "JAENSK010000409.1" chrStart: 1057226752
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 82  "MU179271.1" chrStart: 1057488896
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 83  "JAENSK010000541.1" chrStart: 1057751040
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 84  "MU179262.1" chrStart: 1058013184
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 85  "JAENSK010000585.1" chrStart: 1058275328
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 86  "JAENSK010000600.1" chrStart: 1058537472
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 87  "JAENSK010000608.1" chrStart: 1058799616
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 88  "JAENSK010000002.1" chrStart: 1059061760
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 89  "JAENSK010000296.1" chrStart: 1059323904
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 90  "JAENSK010000579.1" chrStart: 1059586048
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 91  "JAENSK010000598.1" chrStart: 1059848192
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 92  "JAENSK010000533.1" chrStart: 1060110336
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 93  "JAENSK010000604.1" chrStart: 1060372480
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 94  "JAENSK010000609.1" chrStart: 1060634624
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 95  "JAENSK010000543.1" chrStart: 1060896768
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 96  "JAENSK010000416.1" chrStart: 1061158912
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 97  "JAENSK010000596.1" chrStart: 1061421056
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 98  "JAENSK010000540.1" chrStart: 1061683200
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 99  "JAENSK010000420.1" chrStart: 1061945344
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 100  "JAENSK010000544.1" chrStart: 1062207488
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 101  "JAENSK010000610.1" chrStart: 1062469632
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 102  "JAENSK010000546.1" chrStart: 1062731776
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 103  "JAENSK010000291.1" chrStart: 1062993920
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 104  "JAENSK010000611.1" chrStart: 1063256064
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 105  "MU179267.1" chrStart: 1063518208
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 106  "JAENSK010000542.1" chrStart: 1063780352
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 107  "JAENSK010000437.1" chrStart: 1064042496
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 108  "JAENSK010000466.1" chrStart: 1064304640
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 109  "JAENSK010000612.1" chrStart: 1064566784
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 110  "JAENSK010000613.1" chrStart: 1064828928
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 111  "JAENSK010000483.1" chrStart: 1065091072
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 112  "JAENSK010000614.1" chrStart: 1065353216
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 113  "JAENSK010000534.1" chrStart: 1065615360
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 114  "JAENSK010000615.1" chrStart: 1065877504
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 115  "JAENSK010000616.1" chrStart: 1066139648
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 116  "JAENSK010000617.1" chrStart: 1066401792
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 117  "JAENSK010000571.1" chrStart: 1066663936
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 118  "JAENSK010000572.1" chrStart: 1066926080
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 119  "JAENSK010000465.1" chrStart: 1067188224
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 120  "JAENSK010000460.1" chrStart: 1067450368
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 121  "JAENSK010000618.1" chrStart: 1067712512
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 122  "JAENSK010000417.1" chrStart: 1067974656
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 123  "JAENSK010000599.1" chrStart: 1068236800
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 124  "JAENSK010000410.1" chrStart: 1068498944
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 125  "JAENSK010000448.1" chrStart: 1068761088
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 126  "JAENSK010000384.1" chrStart: 1069023232
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 127  "JAENSK010000438.1" chrStart: 1069285376
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 128  "JAENSK010000619.1" chrStart: 1069547520
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 129  "JAENSK010000581.1" chrStart: 1069809664
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 130  "JAENSK010000034.1" chrStart: 1070071808
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 131  "JAENSK010000605.1" chrStart: 1070333952
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 132  "JAENSK010000621.1" chrStart: 1070596096
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 133  "JAENSK010000620.1" chrStart: 1070858240
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 134  "JAENSK010000622.1" chrStart: 1071120384
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 135  "JAENSK010000623.1" chrStart: 1071382528
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 136  "JAENSK010000568.1" chrStart: 1071644672
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 137  "JAENSK010000624.1" chrStart: 1071906816
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 138  "JAENSK010000625.1" chrStart: 1072168960
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 139  "JAENSK010000626.1" chrStart: 1072431104
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 140  "JAENSK010000576.1" chrStart: 1072693248
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 141  "JAENSK010000627.1" chrStart: 1072955392
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 142  "JAENSK010000586.1" chrStart: 1073217536
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 143  "JAENSK010000628.1" chrStart: 1073479680
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 144  "JAENSK010000629.1" chrStart: 1073741824
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 145  "JAENSK010000630.1" chrStart: 1074003968
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 146  "JAENSK010000452.1" chrStart: 1074266112
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 147  "JAENSK010000545.1" chrStart: 1074528256
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 148  "JAENSK010000592.1" chrStart: 1074790400
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 149  "JAENSK010000631.1" chrStart: 1075052544
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 150  "JAENSK010000632.1" chrStart: 1075314688
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 151  "JAENSK010000418.1" chrStart: 1075576832
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 152  "JAENSK010000001.1" chrStart: 1075838976
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 153  "JAENSK010000633.1" chrStart: 1076101120
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 154  "JAENSK010000634.1" chrStart: 1076363264
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 155  "JAENSK010000635.1" chrStart: 1076625408
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 156  "JAENSK010000636.1" chrStart: 1076887552
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 157  "JAENSK010000477.1" chrStart: 1077149696
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 158  "JAENSK010000478.1" chrStart: 1077411840
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 159  "JAENSK010000383.1" chrStart: 1077673984
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 160  "JAENSK010000637.1" chrStart: 1077936128
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 161  "JAENSK010000033.1" chrStart: 1078198272
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 162  "JAENSK010000638.1" chrStart: 1078460416
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 163  "JAENSK010000639.1" chrStart: 1078722560
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 164  "JAENSK010000593.1" chrStart: 1078984704
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 165  "JAENSK010000640.1" chrStart: 1079246848
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 166  "JAENSK010000587.1" chrStart: 1079508992
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 167  "JAENSK010000594.1" chrStart: 1079771136
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 168  "JAENSK010000642.1" chrStart: 1080033280
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 169  "JAENSK010000641.1" chrStart: 1080295424
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 170  "JAENSK010000597.1" chrStart: 1080557568
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 171  "JAENSK010000595.1" chrStart: 1080819712
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 172  "JAENSK010000643.1" chrStart: 1081081856
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 173  "JAENSK010000644.1" chrStart: 1081344000
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 174  "JAENSK010000645.1" chrStart: 1081606144
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 175  "JAENSK010000449.1" chrStart: 1081868288
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 176  "JAENSK010000646.1" chrStart: 1082130432
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 177  "JAENSK010000647.1" chrStart: 1082392576
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 178  "JAENSK010000648.1" chrStart: 1082654720
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 179  "JAENSK010000479.1" chrStart: 1082916864
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 180  "JAENSK010000588.1" chrStart: 1083179008
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 181  "JAENSK010000589.1" chrStart: 1083441152
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 182  "JAENSK010000295.1" chrStart: 1083703296
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 183  "JAENSK010000649.1" chrStart: 1083965440
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 184  "JAENSK010000650.1" chrStart: 1084227584
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 185  "JAENSK010000651.1" chrStart: 1084489728
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 186  "JAENSK010000652.1" chrStart: 1084751872
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 187  "JAENSK010000653.1" chrStart: 1085014016
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 188  "JAENSK010000654.1" chrStart: 1085276160
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 189  "JAENSK010000082.1" chrStart: 1085538304
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 190  "JAENSK010000655.1" chrStart: 1085800448
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 191  "JAENSK010000294.1" chrStart: 1086062592
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 192  "JAENSK010000083.1" chrStart: 1086324736
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 193  "JAENSK010000656.1" chrStart: 1086586880
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 194  "JAENSK010000657.1" chrStart: 1086849024
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 195  "JAENSK010000658.1" chrStart: 1087111168
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 196  "JAENSK010000659.1" chrStart: 1087373312
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 197  "JAENSK010000660.1" chrStart: 1087635456
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 198  "JAENSK010000661.1" chrStart: 1087897600
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 199  "JAENSK010000662.1" chrStart: 1088159744
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 200  "JAENSK010000663.1" chrStart: 1088421888
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 201  "JAENSK010000664.1" chrStart: 1088684032
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 202  "JAENSK010000665.1" chrStart: 1088946176
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 203  "JAENSK010000666.1" chrStart: 1089208320
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 204  "JAENSK010000667.1" chrStart: 1089470464
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 205  "JAENSK010000668.1" chrStart: 1089732608
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 206  "JAENSK010000669.1" chrStart: 1089994752
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 207  "JAENSK010000670.1" chrStart: 1090256896
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 208  "JAENSK010000671.1" chrStart: 1090519040
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 209  "JAENSK010000672.1" chrStart: 1090781184
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 210  "JAENSK010000673.1" chrStart: 1091043328
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 211  "JAENSK010000674.1" chrStart: 1091305472
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 212  "JAENSK010000675.1" chrStart: 1091567616
-/home/johan/johan/reference/chicken/fasta/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa : chr # 213  "JAENSK010000676.1" chrStart: 1091829760
-Chromosome sequence lengths: 
-1	196449156
-2	149539284
-3	110642502
-4	90861225
-5	59506338
-6	36220557
-7	36382834
-8	29578256
-9	23733309
-10	20453248
-11	19638187
-12	20119077
-13	17905061
-14	15331188
-15	12703657
-16	2706039
-17	11092391
-18	11623896
-19	10455293
-20	14265659
-21	6970754
-22	4686657
-23	6253421
-24	6478339
-25	3067737
-26	5349051
-27	5228753
-28	5437364
-29	726478
-30	755666
-31	2457334
-32	125424
-33	3839931
-34	3469343
-35	554126
-36	358375
-37	157853
-38	667312
-39	177356
-W	9109940
-Z	86044486
-MT	16784
-MU179268.1	454552
-MU179272.1	447004
-MU179273.1	279492
-MU179261.1	259507
-MU179263.1	244274
-MU179277.1	243023
-MU179278.1	239848
-MU179258.1	236755
-MU179274.1	219221
-JAENSK010000538.1	184108
-JAENSK010000459.1	183934
-MU179266.1	179921
-JAENSK010000565.1	172381
-MU179269.1	157377
-JAENSK010000461.1	147375
-MU179276.1	145889
-MU179275.1	142519
-MU179270.1	139882
-MU179264.1	135931
-JAENSK010000584.1	132137
-JAENSK010000603.1	128647
-JAENSK010000462.1	123103
-JAENSK010000484.1	122554
-JAENSK010000547.1	121826
-JAENSK010000573.1	121294
-JAENSK010000539.1	107179
-MU179259.1	105159
-JAENSK010000419.1	105149
-JAENSK010000526.1	103662
-JAENSK010000532.1	102867
-JAENSK010000580.1	102453
-JAENSK010000602.1	99652
-MU179260.1	99000
-JAENSK010000527.1	96352
-JAENSK010000606.1	95042
-JAENSK010000607.1	94594
-MU179279.1	92785
-JAENSK010000601.1	91947
-MU179265.1	90962
-JAENSK010000409.1	89875
-MU179271.1	88251
-JAENSK010000541.1	83855
-MU179262.1	83545
-JAENSK010000585.1	82910
-JAENSK010000600.1	77924
-JAENSK010000608.1	77453
-JAENSK010000002.1	76880
-JAENSK010000296.1	76531
-JAENSK010000579.1	76213
-JAENSK010000598.1	75927
-JAENSK010000533.1	75790
-JAENSK010000604.1	73711
-JAENSK010000609.1	73086
-JAENSK010000543.1	72665
-JAENSK010000416.1	72078
-JAENSK010000596.1	71264
-JAENSK010000540.1	70535
-JAENSK010000420.1	70221
-JAENSK010000544.1	68472
-JAENSK010000610.1	66990
-JAENSK010000546.1	65185
-JAENSK010000291.1	64959
-JAENSK010000611.1	64784
-MU179267.1	63726
-JAENSK010000542.1	62949
-JAENSK010000437.1	62499
-JAENSK010000466.1	61860
-JAENSK010000612.1	61262
-JAENSK010000613.1	60993
-JAENSK010000483.1	60241
-JAENSK010000614.1	60148
-JAENSK010000534.1	59700
-JAENSK010000615.1	58765
-JAENSK010000616.1	57327
-JAENSK010000617.1	57283
-JAENSK010000571.1	56807
-JAENSK010000572.1	56774
-JAENSK010000465.1	56291
-JAENSK010000460.1	56170
-JAENSK010000618.1	55004
-JAENSK010000417.1	54963
-JAENSK010000599.1	54073
-JAENSK010000410.1	52746
-JAENSK010000448.1	52716
-JAENSK010000384.1	52620
-JAENSK010000438.1	52169
-JAENSK010000619.1	51700
-JAENSK010000581.1	51278
-JAENSK010000034.1	50781
-JAENSK010000605.1	50063
-JAENSK010000621.1	49896
-JAENSK010000620.1	49878
-JAENSK010000622.1	49236
-JAENSK010000623.1	48223
-JAENSK010000568.1	48159
-JAENSK010000624.1	48023
-JAENSK010000625.1	47344
-JAENSK010000626.1	47336
-JAENSK010000576.1	46453
-JAENSK010000627.1	45670
-JAENSK010000586.1	45339
-JAENSK010000628.1	44737
-JAENSK010000629.1	44416
-JAENSK010000630.1	44091
-JAENSK010000452.1	44029
-JAENSK010000545.1	43858
-JAENSK010000592.1	43833
-JAENSK010000631.1	43804
-JAENSK010000632.1	43447
-JAENSK010000418.1	43198
-JAENSK010000001.1	42181
-JAENSK010000633.1	41869
-JAENSK010000634.1	41187
-JAENSK010000635.1	40905
-JAENSK010000636.1	40485
-JAENSK010000477.1	39716
-JAENSK010000478.1	39622
-JAENSK010000383.1	39239
-JAENSK010000637.1	38749
-JAENSK010000033.1	38338
-JAENSK010000638.1	38267
-JAENSK010000639.1	38098
-JAENSK010000593.1	37288
-JAENSK010000640.1	37156
-JAENSK010000587.1	37135
-JAENSK010000594.1	36282
-JAENSK010000642.1	36169
-JAENSK010000641.1	36049
-JAENSK010000597.1	35936
-JAENSK010000595.1	35597
-JAENSK010000643.1	34455
-JAENSK010000644.1	32761
-JAENSK010000645.1	32129
-JAENSK010000449.1	31960
-JAENSK010000646.1	29996
-JAENSK010000647.1	29845
-JAENSK010000648.1	29612
-JAENSK010000479.1	28486
-JAENSK010000588.1	28217
-JAENSK010000589.1	27687
-JAENSK010000295.1	27394
-JAENSK010000649.1	27008
-JAENSK010000650.1	26690
-JAENSK010000651.1	26680
-JAENSK010000652.1	25600
-JAENSK010000653.1	25356
-JAENSK010000654.1	24872
-JAENSK010000082.1	24491
-JAENSK010000655.1	24165
-JAENSK010000294.1	24076
-JAENSK010000083.1	23670
-JAENSK010000656.1	23651
-JAENSK010000657.1	22200
-JAENSK010000658.1	20719
-JAENSK010000659.1	20625
-JAENSK010000660.1	20391
-JAENSK010000661.1	20277
-JAENSK010000662.1	17176
-JAENSK010000663.1	16695
-JAENSK010000664.1	15631
-JAENSK010000665.1	13796
-JAENSK010000666.1	9587
-JAENSK010000667.1	9004
-JAENSK010000668.1	5394
-JAENSK010000669.1	4183
-JAENSK010000670.1	3676
-JAENSK010000671.1	3291
-JAENSK010000672.1	2948
-JAENSK010000673.1	2415
-JAENSK010000674.1	2044
-JAENSK010000675.1	1713
-JAENSK010000676.1	1437
-Genome sequence total length = 1053332251
-Genome size with padding = 1092091904
-Sep 18 21:46:47 ..... processing annotations GTF
-Processing pGe.sjdbGTFfile=/home/johan/johan/reference/chicken/gtf/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.115.gtf, found:
-		72689 transcripts
-		645197 exons (non-collapsed)
-		254930 collapsed junctions
-Total junctions: 254930
-Sep 18 21:47:09 ..... finished GTF processing
-
-Estimated genome size with padding and SJs: total=genome+SJ=1393091904 = 1092091904 + 301000000
-GstrandBit=32
-Number of SA indices: 2099896666
-Sep 18 21:47:20 ... starting to sort Suffix Array. This may take a long time...
-Number of chunks: 8;   chunks size limit: 2161186192 bytes
-Sep 18 21:47:42 ... sorting Suffix Array chunks and saving them to disk...
-Writing 1937094488 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_7 ; empty space on disk = 10386726453248 bytes ... done
-Writing 2096442864 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_2 ; empty space on disk = 10383828058112 bytes ... done
-Writing 2160854672 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_4 ; empty space on disk = 10381352632320 bytes ...Writing 2146951992 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_6 ; empty space on disk = 10381352632320 bytes ... done
- done
-Writing 2154685512 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_5 ; empty space on disk = 10379732058112 bytes ...Writing 2043261368 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_3 ; empty space on disk = 10379732058112 bytes ... done
- done
-Writing 2102620408 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_1 ; empty space on disk = 10373214765056 bytes ...Writing 2102620408 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_1 ; empty space on disk = 10373214765056 bytes ...Writing 2157262024 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA_0 ; empty space on disk = 10373214765056 bytes ... done
- done
-Sep 18 22:08:46 ... loading chunks from disk, packing SA...
-Sep 18 22:09:48 ... finished generating suffix array
-Sep 18 22:09:48 ... generating Suffix Array index
-Sep 18 22:13:32 ... completed Suffix Array index
-Sep 18 22:13:33   Finished preparing junctions
-Sep 18 22:13:33 ..... inserting junctions into the genome indices
-Sep 18 22:17:19   Finished SA search: number of new junctions=254920, old junctions=0
-Sep 18 22:19:58   Finished sorting SA indicesL nInd=152948370
-Genome size with junctions=1168822824  1092091904   76730920
-GstrandBit1=32   GstrandBit=32
-Sep 18 22:20:46   Finished inserting junction indices
-Sep 18 22:21:59   Finished SAi
-Sep 18 22:22:00 ..... finished inserting junctions into genome
-Sep 18 22:22:00 ... writing Genome to disk ...
-Writing 1168822824 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//Genome ; empty space on disk = 10384308830208 bytes ... done
-SA size in bytes: 9292985777
-Sep 18 22:22:12 ... writing Suffix Array to disk ...
-Writing 9292985777 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SA ; empty space on disk = 10384308830208 bytes ... done
-Sep 18 22:23:52 ... writing SAindex to disk
-Writing 8 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SAindex ; empty space on disk = 10374543179776 bytes ... done
-Writing 112 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SAindex ; empty space on disk = 10374543179776 bytes ... done
-Writing 391468371 bytes into /home/johan/johan/reference/chicken/star_index/STAR_index_chicken_150//SAindex ; empty space on disk = 10374543179776 bytes ... done
-Sep 18 22:23:57 ..... finished successfully
-DONE: Genome generation, EXITING
+Genome: size given as a parameter = 1168822824
+SA: size given as a parameter = 9292985777
+SAindex: size given as a parameter = 1
+Read from SAindex: pGe.gSAindexNbases=13  nSAi=89478484
+nGenome=1168822824;  nSAbyte=9292985777
+GstrandBit=32   SA number of indices=2252845036
+Found genome in shared memory
+DONE: removed the genome from shared memory
+Thread #0 end of input stream, nextChar=-1
+Completed: thread #0
+Nov 05 20:57:15 ..... finished mapping
+RAM after mapping:
+VmPeak:	10624052 kB; VmSize:	  176060 kB; VmHWM:	  105756 kB; VmRSS:	  105756 kB; 
+ALL DONE!
