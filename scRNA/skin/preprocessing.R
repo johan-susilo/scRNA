@@ -31,7 +31,11 @@ suppressPackageStartupMessages({
   library(parallel)
   library(future)
   library(future.apply)
+  library(scCATCH)
 })
+
+# --- Increase Global Memory Limit for Parallel Processing ---
+options(future.globals.maxSize = 100 * 1024^3)
 
 # Command-line Interface ----------------------------------------------------
 option_list <- list(
@@ -39,7 +43,7 @@ option_list <- list(
   make_option(c("-d", "--datadir"), type = "character", default = ".",
               help = "Base directory containing sample folders [default: current directory]"),
   make_option(c("-s", "--step"), type = "character",
-              help = "Pipeline step: read_csv, process, integrate, plot, all"),
+              help = "Pipeline step: read_csv, process, integrate, plot, annotate, all"),
   make_option(c("-o", "--output"), type = "character", default = NULL,
               help = "Base output directory [overrides default output_base]"),
   make_option(c("-c", "--cores"), type = "integer", default = NULL,
@@ -81,17 +85,9 @@ sink(log_conn, type = "message")
 message("Log file: ", log_file)
 message("Started at: ", Sys.time())
 
-# Set up parallel processing
-if (is.null(opt$cores)) {
-  n_cores <- parallel::detectCores() - 1  # Leave one core free
-  n_cores <- max(1, n_cores)  # Ensure at least 1 core
-} else {
-  n_cores <- opt$cores
-}
-message("Using ", n_cores, " cores for parallel processing")
-
-# Configure future for parallel processing
-plan(multisession, workers = n_cores)
+# Set up processing mode - ALWAYS use sequential to avoid deadlocks
+message("Using SEQUENTIAL processing mode to avoid deadlocks")
+plan(sequential)
 
 # Define color schemes
 mycolor <- c("#CCCCCC", # gray for other
@@ -105,6 +101,7 @@ mycolor <- c("#CCCCCC", # gray for other
 doublet_color <- c("Doublet" = "#e35473", "Singlet" = "#54cdeb")
 
 read_samples_csv <- function(csv_file) {
+  Sys.time()
   # Read CSV file with sample information
   message("Reading sample information from ", csv_file)
 
@@ -140,119 +137,186 @@ read_samples_csv <- function(csv_file) {
   return(samples_df)
 }
 
-process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_dir) {
-  output_rds <- file.path(output_dirs$processed, paste0(sample_name, "_processed.rds"))
+# Helper function to safely save PDF plots
+safe_save_pdf <- function(plot_obj, filepath, w = 15, h = 15) {
+  tryCatch({
+    pdf(filepath, width = w, height = h)
+    on.exit(dev.off(), add = TRUE)  # Ensure device closes even if print fails
+    print(plot_obj)
+    message("Saved plot: ", filepath)
+  }, error = function(e) {
+    message("Warning: Failed to save plot ", filepath, ": ", conditionMessage(e))
+    # Make sure device is closed
+    if (length(dev.list()) > 0) dev.off()
+  })
+}
 
-  sample_id <- sample_name
+process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_dir, out_dirs) {
+  # Wrap the ENTIRE function in tryCatch so one bad sample doesn't kill the parallel run
+  Sys.time()
+  tryCatch({
+    output_rds <- file.path(out_dirs$processed, paste0(sample_name, "_processed.rds"))
+    sample_id <- sample_name
 
-  if(file.exists(output_rds)) {
-    message("Loading preprocessed: ", sample_name)
-    return(readRDS(output_rds))
-  }
+    if(file.exists(output_rds)) {
+      message("Loading preprocessed: ", sample_name)
+      return(output_rds)  # Return path, not object
+    }
 
-  message("\nProcessing sample: ", sample_name)
-  data_dir <- file.path(base_data_dir, sample_name)
+    message("\nProcessing sample: ", sample_name)
+    data_dir <- file.path(base_data_dir, sample_name)
 
-  # Create a Seurat object
-  seur_obj <- CreateSeuratObject(
-    counts = Read10X(data.dir = data_dir),
-    project = sample_name,
-    min.cells = 3,
-    min.features = 10
-  )
-  message("Created Seurat object with dimensions: ", dim(seur_obj)[1], " features and ", dim(seur_obj)[2], " cells")
+    # Create a Seurat object
+    seur_obj <- CreateSeuratObject(
+      counts = Read10X(data.dir = data_dir),
+      project = sample_name,
+      min.cells = 3,
+      min.features = 10
+    )
+    message("Created Seurat object for ", sample_name, " with dimensions: ", dim(seur_obj)[1], " features and ", dim(seur_obj)[2], " cells")
 
-  # Run general flow of scRNA-seq by Seurat package
-  seur_obj <- seur_obj %>%
-    NormalizeData() %>%
-    FindVariableFeatures() %>%
-    ScaleData() %>%
-    RunPCA() %>%
-    RunUMAP(dims = 1:30)
 
-  # Plot elbow plot
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_elbow1.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  print(ElbowPlot(seur_obj))
-  dev.off()
+    # Run general flow of scRNA-seq by Seurat package
+    seur_obj <- seur_obj %>%
+      NormalizeData() %>%
+      FindVariableFeatures() %>%
+      ScaleData() %>%
+      RunPCA() %>%
+      RunUMAP(dims = 1:30)
 
-  seur_obj <- FindNeighbors(object = seur_obj, dims = 1:50)
-  seur_obj <- FindClusters(object = seur_obj)
-  seur_obj <- RunUMAP(object = seur_obj, dims = 1:30)
+    # Plot elbow plot
+    safe_save_pdf(ElbowPlot(seur_obj),
+                  file.path(out_dirs$plots, paste0(sample_id, "_elbow1.pdf")))
 
-  # Plot UMAP plot
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_umap1.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(seur_obj, reduction = "umap", label = TRUE))
-  dev.off()
+    seur_obj <- FindNeighbors(object = seur_obj, dims = 1:50)
+    seur_obj <- FindClusters(object = seur_obj)
+    seur_obj <- RunUMAP(object = seur_obj, dims = 1:30)
 
-  # pK Identification and doublet detection
-  sweep.res.list <- paramSweep(seur_obj, PCs = 1:20, sct = FALSE)
-  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
-  bcmvn <- find.pK(sweep.stats)
+    # Plot UMAP plot
+    safe_save_pdf(DimPlot(seur_obj, reduction = "umap", label = TRUE),
+                  file.path(out_dirs$plots, paste0(sample_id, "_umap1.pdf")))
 
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_pkplot.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  print(ggplot(bcmvn, aes(pK, BCmetric, group = 1)) + geom_point() + geom_line())
-  dev.off()
+    # pK Identification and doublet detection
+    sweep.res.list <- paramSweep(seur_obj, PCs = 1:20, sct = FALSE)
+    sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+    bcmvn <- find.pK(sweep.stats)
 
-  pK <- bcmvn %>% filter(BCmetric == max(BCmetric)) %>% select(pK)
-  pK <- as.numeric(as.character(pK[[1]]))
+    safe_save_pdf(ggplot(bcmvn, aes(pK, BCmetric, group = 1)) + geom_point() + geom_line(),
+                  file.path(out_dirs$plots, paste0(sample_id, "_pkplot.pdf")))
 
-  # Doublet detection and filtering
-  annotations <- seur_obj@meta.data$seurat_clusters
-  homotypic.prop <- modelHomotypic(annotations)
-  nExp_poi <- round(0.08 * nrow(seur_obj@meta.data))
-  nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+    # Safely extract pK
+    pK_val <- as.numeric(as.character(bcmvn[bcmvn$BCmetric == max(bcmvn$BCmetric), ]$pK))
 
-  seur_obj <- doubletFinder(seur_obj, PCs = 1:20, pN = 0.25, pK = pK, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
-  DF_classification <- colnames(seur_obj@meta.data)[7]
+    # Doublet detection and filtering
+    annotations <- seur_obj@meta.data$seurat_clusters
+    homotypic.prop <- modelHomotypic(annotations)
+    nExp_poi <- round(0.08 * nrow(seur_obj@meta.data))
+    nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
 
-  # Plot unfiltered doublet plot
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_unfiltered_doublet.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(seur_obj, reduction = 'umap', group.by = DF_classification, cols = doublet_color))
-  dev.off()
+    seur_obj <- doubletFinder(seur_obj, PCs = 1:20, pN = 0.25, pK = pK_val, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
+    
+    # --- CRITICAL FIX START: Dynamic Column Detection ---
+    # Do not assume index [7]. Find column by name pattern.
+    DF_cols <- grep("DF.classifications", colnames(seur_obj@meta.data), value = TRUE)
+    
+    if (length(DF_cols) == 0) {
+      stop("DoubletFinder failed to add classification column for sample: ", sample_name)
+    }
+    # Take the first match (usually the only one unless run multiple times)
+    DF_classification <- DF_cols[1] 
+    
+    # Plot unfiltered doublet plot
+    safe_save_pdf(DimPlot(seur_obj, reduction = 'umap', group.by = DF_classification, cols = doublet_color),
+                  file.path(out_dirs$plots, paste0(sample_id, "_unfiltered_doublet.pdf")))
 
-  # Filter out doublets
-  singlet_indices <- which(seur_obj@meta.data[[DF_classification]] == "Singlet")
-  seur_obj <- seur_obj[, singlet_indices]
+    # Filter out doublets using the dynamically found column name
+    # Use subset() for safety
+    seur_obj <- subset(seur_obj, cells = rownames(seur_obj@meta.data)[seur_obj@meta.data[[DF_classification]] == "Singlet"])
+    # --- CRITICAL FIX END ---
 
-  # Add filtered doublet plot
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_filtered_doublet.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(seur_obj, reduction = "umap", group.by = DF_classification, cols = doublet_color))
-  dev.off()
-  message("Filtered doublet plot saved: ", pdf_file)
+    # Add filtered doublet plot
+    safe_save_pdf(DimPlot(seur_obj, reduction = "umap", group.by = DF_classification, cols = doublet_color),
+                  file.path(out_dirs$plots, paste0(sample_id, "_filtered_doublet.pdf")))
 
-  # QC metrics and filtering
-  seur_obj$orig.ident1 <- sample_ident1
-  seur_obj$orig.ident2 <- sample_ident2
-  seur_obj[["percent.mt"]] <- PercentageFeatureSet(seur_obj, pattern = "^MT-")
+    # QC metrics and filtering
+    seur_obj$orig.ident1 <- sample_ident1
+    seur_obj$orig.ident2 <- sample_ident2
 
-  # Add QC violin plots
-  pdf_file <- file.path(output_dirs$plots, paste0(sample_id, "_qc_violins.pdf"))
-  pdf(pdf_file, width = 15, height = 15)
-  vln_plot <- VlnPlot(seur_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),
-                      pt.size = 0.1, ncol = 3)
-  print(vln_plot)
-  dev.off()
-  message("QC violin plots saved: ", pdf_file)
+    # Calculate percent.mt safely (handles cases with no MT genes)
+    seur_obj[["percent.mt"]] <- PercentageFeatureSet(seur_obj, pattern = "^MT-")
 
-  # Quality filtering
-  seur_obj <- subset(seur_obj, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 30)
+    # Check if percent.mt was actually created and is numeric
+    if (!"percent.mt" %in% colnames(seur_obj@meta.data)) {
+      message("Warning: percent.mt could not be calculated (no MT genes?). Setting to 0.")
+      seur_obj$percent.mt <- 0
+    }
 
-  # Save processed object
-  output_file <- file.path(output_dirs$processed, paste0(sample_id, "_processed.rds"))
-  saveRDS(seur_obj, output_file)
-  message("Processed object saved: ", output_file)
+    # Add QC violin plots with explicit device handling
+    pdf_file <- file.path(out_dirs$plots, paste0(sample_id, "_qc_violins.pdf"))
+    tryCatch({
+      # Check if we have data to plot BEFORE opening PDF device
+      qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
 
-  return(seur_obj)
+      if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
+        # Open PDF device only if validation passes
+        pdf(pdf_file, width = 15, height = 15)
+
+        # Create plot with error handling
+        vln_plot <- tryCatch({
+          VlnPlot(seur_obj, features = qc_feats, pt.size = 0.1, ncol = 3)
+        }, error = function(e) {
+          message("Warning: VlnPlot creation failed: ", conditionMessage(e))
+          return(NULL)
+        })
+
+        if (!is.null(vln_plot)) {
+          print(vln_plot)
+          message("QC violin plots saved: ", pdf_file)
+        } else {
+          message("Warning: VlnPlot returned NULL for ", sample_id)
+        }
+
+        dev.off()
+      } else {
+        message("Warning: Cannot create VlnPlot - missing columns or empty object for ", sample_id)
+      }
+    }, error = function(e) {
+      message("Warning: Error plotting QC violins for ", sample_id, ": ", conditionMessage(e))
+      # Clean up device if open
+      if (length(dev.list()) > 0) {
+        tryCatch(dev.off(), error = function(e2) {})
+      }
+    })
+
+    # Quality filtering
+    seur_obj <- subset(seur_obj, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 30)
+
+    # Save processed object
+    saveRDS(seur_obj, output_rds)
+    message("Processed object saved: ", output_rds)
+
+    # Return the file path instead of the object to avoid serialization issues in parallel
+    return(output_rds)
+    
+  }, error = function(e) {
+    # If anything fails inside this function, catch it here so the other parallel workers don't die
+    message("\nCRITICAL ERROR processing sample ", sample_name, ": ", e$message)
+    return(NULL) # Return NULL to indicate failure
+  })
 }
 
 
 integrate_samples <- function(sample_list) {
+  Sys.time()
+  # Remove NULLs from failed samples
+  sample_list <- Filter(Negate(is.null), sample_list)
+
+  if (length(sample_list) == 0) {
+    stop("No valid samples available for integration.")
+  }
+
   # Cell cycle scoring and normalization
+  message("Starting normalization and cell cycle scoring for ", length(sample_list), " samples...")
   s.genes <- cc.genes$s.genes
   g2m.genes <- cc.genes$g2m.genes
 
@@ -264,35 +328,49 @@ integrate_samples <- function(sample_list) {
     return(x)
   })
 
-  # Integration
+  # Integration - already in sequential mode
+  message("Selecting integration features...")
   features <- SelectIntegrationFeatures(object.list = TN.list)
-  TN.anchors <- FindIntegrationAnchors(object.list = TN.list, dims = 1:30)
-  saveRDS(TN.anchors, file.path(output_base, "TN.anchorsdim30.rds"))
 
-  TN.combined <- IntegrateData(anchorset = TN.anchors, dims = 1:30)
+  message("Finding integration anchors (this may take a while)...")
+  TN.anchors <- FindIntegrationAnchors(object.list = TN.list, dims = 1:30, verbose = TRUE)
+  saveRDS(TN.anchors, file.path(output_base, "TN.anchorsdim30.rds"))
+  message("Integration anchors saved")
+
+  message("Integrating data...")
+  TN.combined <- IntegrateData(anchorset = TN.anchors, dims = 1:30, verbose = TRUE)
   DefaultAssay(TN.combined) <- "integrated"
+  message("Data integration completed")
 
   # Scaling, PCA, clustering
+  message("Scaling integrated data...")
   TN.combined <- ScaleData(TN.combined, vars.to.regress = c("S.Score", "G2M.Score", "percent.mt"),
                           features = rownames(TN.combined), verbose = TRUE)
+  message("Running PCA...")
   TN.combined <- RunPCA(TN.combined, npcs = 50, verbose = TRUE)
+  message("Finding neighbors...")
   TN.combined <- FindNeighbors(TN.combined, reduction = "pca", dims = 1:30)
+  message("Finding clusters...")
   TN.combined <- FindClusters(TN.combined, resolution = 0.5)
+  message("Running UMAP...")
   TN.combined <- RunUMAP(TN.combined, reduction = "pca", dims = 1:30)
 
   # Save tables
+  message("Saving cell count tables...")
   CellNumber <- table(Idents(TN.combined), TN.combined$orig.ident1)
   write.csv(CellNumber, file = file.path(output_dirs$tables, "CellNumber_bygroup.csv"))
 
   # Save integrated object
+  message("Saving integrated object...")
   saveRDS(TN.combined, file = file.path(output_base, "TN.combined_dim30.rds"))
+  message("Integration complete!")
 
   return(TN.combined)
 }
 
 
 create_summary_dot_plot <- function(seurat_object, output_dir) {
-
+  Sys.time()
   message("Generating summary marker gene dot plot...")
 
   # Define the exact list of marker genes
@@ -343,8 +421,8 @@ create_summary_dot_plot <- function(seurat_object, output_dir) {
 }
 
 generate_plots <- function(TN.combined) {
+  Sys.time()
   # UMAP plots
-
   pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_labelF.pdf")
   pdf(pdf_file, width = 15, height = 15)
   print(DimPlot(TN.combined, reduction = "umap", label = FALSE, pt.size = 0.8, cols = mycolor))
@@ -411,7 +489,7 @@ generate_plots <- function(TN.combined) {
 }
 
 run_and_plot_pca <- function(seurat_object, output_plots_dir) {
-
+  Sys.time()
   message("Generating sample similarity plot using pseudo-bulk PCA...")
 
   # Create "pseudo-bulk" profiles by averaging expression for each sample
@@ -463,24 +541,36 @@ execute_step <- function(step) {
     },
     process = {
       samples_df <- readRDS(file.path(output_base, "samples_df.rds"))
-      message("\nProcessing ", nrow(samples_df), " samples in parallel using ", n_cores, " cores...")
+      message("\nProcessing ", nrow(samples_df), " samples sequentially...")
 
-      # Process samples in parallel using future_lapply
-      results <- future_lapply(1:nrow(samples_df), function(i) {
+      # Process samples sequentially using lapply
+      results <- lapply(1:nrow(samples_df), function(i) {
         process_sample(samples_df$sample_names[i],
                       samples_df$ident1[i],
                       samples_df$ident2[i],
-                      opt$datadir)
-      }, future.seed = TRUE)
+                      opt$datadir,
+                      output_dirs)
+      })
 
-      message("All samples processed successfully")
+      # Check for failures
+      failed_indices <- which(sapply(results, is.null))
+      if (length(failed_indices) > 0) {
+        message("\nWARNING: The following samples FAILED to process:")
+        message(paste(samples_df$sample_names[failed_indices], collapse=", "))
+        message("Check the logs for details.")
+      } else {
+        message("All samples processed successfully")
+      }
       invisible(results)
     },
     integrate = {
-      sample_list <- list.files(output_dirs$processed,
+      sample_files <- list.files(output_dirs$processed,
                                pattern = "_processed.rds$",
-                               full.names = TRUE) %>%
-        lapply(readRDS)
+                               full.names = TRUE)
+      
+      if (length(sample_files) == 0) stop("No processed sample files found in ", output_dirs$processed)
+      
+      sample_list <- lapply(sample_files, readRDS)
       integrate_samples(sample_list)
     },
     plot = {

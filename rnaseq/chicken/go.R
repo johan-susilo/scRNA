@@ -13,16 +13,16 @@ suppressPackageStartupMessages({
 })
 
 # Inputs
-input_file <- "/home/johan/johan/output/chicken/DGE/ovary/result_egg.csv"  # Changed to DE results
+input_file <- "/home/johan/johan/output/chicken/DGE/uterus/result_egg.csv"  # Changed to DE results
 gaf_file   <- "/home/johan/johan/reference/chicken/go/goa_chicken.gaf"
 
 # Define significance thresholds
 padj_threshold <- 0.05
-lfc_threshold <- 0.7  # Standard threshold (lowered from 1.0 to get more genes for enrichment)
+lfc_threshold <- 0.65 # Standard threshold (lowered from 1.0 to get more genes for enrichment)
 
 # Create output directory with threshold info to avoid overwriting previous results
-base_output_dir <- "/home/johan/johan/output/chicken/GO/ovary"
-output_dir <- "/home/johan/johan/output/chicken/GO/ovary/padj_0.05_lfc_0.7"
+base_output_dir <- "/home/johan/johan/output/chicken/GO/uterus"
+output_dir <- "/home/johan/johan/output/chicken/GO/uterus/padj_0.05_lfc_0.65"
 if (!file.exists(input_file)) {
   stop("Input file not found: ", input_file)
 }

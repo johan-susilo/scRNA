@@ -111,8 +111,18 @@ uterus_marker_genes <- c(
   "ENSGALG00010GKN2"     # GKN2 (Ovocalyxin 21) - Eggshell specific protein with Brichos domain
 )
 
-counts <- read.table("/home/johan/johan/output/chicken/combined.HTseq_report", header = TRUE, sep = "\t", row.names = 1)
-metadata <- read.csv("/home/johan/johan/output/chicken/metadata.csv")
+# ============================================================================
+# SETUP OUTPUT DIRECTORIES
+# ============================================================================
+base_dir <- "/home/johan/output/chicken/"
+output_dir <- file.path(base_dir, "DGE/ovary")
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# ============================================================================
+# LOAD DATA
+# ============================================================================
+counts <- read.table(file.path(base_dir, "combined.HTseq_report"), header = TRUE, sep = "\t", row.names = 1)
+metadata <- read.csv(file.path(base_dir, "metadata.csv"))
 
 
 # Attempt to find a matching column for sample IDs
@@ -147,8 +157,8 @@ uterus$egg_production <- relevel(uterus$egg_production, ref = "low")
 head(counts_uterus)
 
 dds <- DESeqDataSetFromMatrix(
-  countData = counts_uterus, 
-  colData = uterus, 
+  countData = counts_ovary, 
+  colData = ovary, 
   design = ~egg_production
 )
 
@@ -159,8 +169,8 @@ res_egg <- results(dds, contrast = c("egg_production", "high", "low"))
 resOrdered <- res_egg[order(res_egg$padj), ]
 
 
-write.csv(ddsc, file = "/home/johan/johan/output/chicken/DGE/DEseq2_normalized.csv", row.names = TRUE)
-write.csv(resOrdered, file = "/home/johan/johan/output/chicken/DGE/result_egg.csv", row.names = TRUE)
+write.csv(ddsc, file = file.path(output_dir, "DEseq2_normalized.csv"), row.names = TRUE)
+write.csv(resOrdered, file = file.path(output_dir, "result_egg.csv"), row.names = TRUE)
 
 vsd <- vst(dds, blind = FALSE)
 pcaData <- plotPCA(vsd, intgroup = c("tissue","egg_production"), returnData = TRUE)
@@ -174,7 +184,7 @@ pcaPlot <- ggplot(pcaData, aes(PC1, PC2, color = tissue, shape = egg_production)
        title = "PCA of samples (VST)") +
   theme_bw()
 
-ggsave("/home/johan/johan/output/chicken/DGE/PCA.png", width = 10, height = 9, plot = pcaPlot)
+ggsave(file.path(output_dir, "PCA.png"), width = 10, height = 9, plot = pcaPlot)
 
 
 ## volcano plot
@@ -188,8 +198,12 @@ res_df <- as.data.frame(res_egg) %>%
 lfc_threshold <- 1.0
 padj_threshold <- 0.05
 
+# Define genes of special interest to highlight
+genes_of_interest <- c("ENSGALG00010012004", "ENSGALG00010012854")
+
 res_df <- res_df %>%
   mutate(regulation = case_when(
+    gene %in% genes_of_interest                             ~ "Genes of Interest",
     padj < padj_threshold & log2FoldChange > lfc_threshold  ~ "Upregulated",
     padj < padj_threshold & log2FoldChange < -lfc_threshold ~ "Downregulated",
     TRUE                                                    ~ "Not Significant"
@@ -200,39 +214,83 @@ res_df <- res_df %>%
 custom_markers_df <- res_df %>%
   filter(gene %in% uterus_marker_genes)
 
-# Then, select top genes by p-value, excluding any already in custom markers
+# Get genes of interest from results (already have their own category)
+interest_genes_df <- res_df %>%
+  filter(gene %in% genes_of_interest)
+
+# Then, select top genes by p-value, excluding any already in custom markers or genes of interest
 top_auto_genes <- res_df %>%
-  filter(regulation != "Not Significant") %>%
+  filter(regulation %in% c("Upregulated", "Downregulated")) %>%  # Only significant genes, not genes of interest
   filter(!gene %in% uterus_marker_genes) %>%  # Exclude custom markers to avoid duplication
+  filter(!gene %in% genes_of_interest) %>%  # Exclude genes of interest to avoid duplication
   group_by(regulation) %>%
   slice_min(order_by = padj, n = 7)
 
-# Combine both datasets
-top_genes <- bind_rows(custom_markers_df, top_auto_genes) %>%
+# Combine all datasets
+top_genes <- bind_rows(custom_markers_df, interest_genes_df, top_auto_genes) %>%
   distinct(gene, .keep_all = TRUE) %>%  # Ensure no duplicates
-  mutate(is_custom_marker = gene %in% uterus_marker_genes)  # Mark custom markers for visual distinction
+  mutate(
+    is_custom_marker = gene %in% uterus_marker_genes,
+    is_gene_of_interest = gene %in% genes_of_interest
+  )
 
 # 4. Create the volcano plot
 volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = regulation)) +
-  geom_point(alpha = 0.6, size = 1.5) +
+  geom_point(aes(size = regulation, alpha = regulation, shape = regulation)) +
   # Add threshold lines
-  geom_hline(yintercept = -log10(padj_threshold), linetype = "dashed") +
-  geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed") +
-  # Set custom colors
-  scale_color_manual(values = c(
-    "Upregulated" = "#e41a1c",
-    "Downregulated" = "#377eb8",
-    "Not Significant" = "grey80"
-  )) +
-  # Add labels for the top genes with visual distinction for custom markers
+  geom_hline(yintercept = -log10(padj_threshold), linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", color = "grey50") +
+  # Set custom colors with purple for genes of interest
+  scale_color_manual(
+    values = c(
+      "Genes of Interest" = "purple",
+      "Upregulated" = "#e41a1c",
+      "Downregulated" = "#377eb8",
+      "Not Significant" = "grey80"
+    ),
+    breaks = c("Genes of Interest", "Upregulated", "Downregulated", "Not Significant")
+  ) +
+  # Set custom sizes - larger for genes of interest
+  scale_size_manual(
+    values = c(
+      "Genes of Interest" = 5,
+      "Upregulated" = 1.5,
+      "Downregulated" = 1.5,
+      "Not Significant" = 1.5
+    ),
+    guide = "none"
+  ) +
+  # Set custom alpha
+  scale_alpha_manual(
+    values = c(
+      "Genes of Interest" = 1,
+      "Upregulated" = 0.6,
+      "Downregulated" = 0.6,
+      "Not Significant" = 0.4
+    ),
+    guide = "none"
+  ) +
+  # Set custom shapes - diamond for genes of interest
+  scale_shape_manual(
+    values = c(
+      "Genes of Interest" = 18,  # Diamond
+      "Upregulated" = 16,         # Circle
+      "Downregulated" = 16,       # Circle
+      "Not Significant" = 16      # Circle
+    ),
+    guide = "none"
+  ) +
+  # Add labels for the top genes with visual distinction
   geom_text_repel(
     data = top_genes,
     aes(label = gene),
-    size = 3.5,
+    size = ifelse(top_genes$is_gene_of_interest, 4.5, 3.5),  # Larger text for genes of interest
     box.padding = 0.5,
     max.overlaps = Inf, # Allow all labels to be plotted
-    color = ifelse(top_genes$is_custom_marker, "red", "black"),  # Red for custom markers, black for auto-selected
-    fontface = ifelse(top_genes$is_custom_marker, "bold", "plain")  # Bold for custom markers
+    color = ifelse(top_genes$is_gene_of_interest, "purple",
+                   ifelse(top_genes$is_custom_marker, "red", "black")),  # Purple for interest, red for custom markers, black for auto-selected
+    fontface = ifelse(top_genes$is_gene_of_interest | top_genes$is_custom_marker, "bold", "plain"),  # Bold for special genes
+    segment.color = ifelse(top_genes$is_gene_of_interest, "purple", "grey50")
   ) +
   labs(
     title = "Volcano Plot: High vs. Low Egg Production",
@@ -244,4 +302,14 @@ volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color =
   theme(legend.position = "bottom")
 
 # 5. Save the plot to a file
-ggsave("/home/johan/johan/output/chicken/DGE/Volcano_Plot_Egg.png", width = 10, height = 9, plot = volcano_plot)
+ggsave(file.path(output_dir, "Volcano_Plot_Egg.png"), width = 10, height = 9, plot = volcano_plot)
+
+message("\n=================================================================")
+message("Analysis completed successfully!")
+message("=================================================================")
+message("Output files saved to: ", output_dir)
+message("  - DEseq2_normalized.csv")
+message("  - result_egg.csv")
+message("  - PCA.png")
+message("  - Volcano_Plot_Egg.png")
+message("=================================================================")
