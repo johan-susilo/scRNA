@@ -1,0 +1,131 @@
+================================================================
+🔧 FIX FOR SRA DOWNLOAD ERROR - START HERE
+================================================================
+
+ERROR YOU SAW:
+--------------
+prefetch.3.2.0 int: name not found while resolving tree
+cannot get remote location for 'CM000663.1'
+
+SOLUTION: Use one of these 3 methods
+================================================================
+
+METHOD 1: ROBUST DOWNLOADER (RECOMMENDED)
+------------------------------------------
+Tries 4 different download methods automatically:
+
+cd /home/johan/pipeline/varcall
+./download_trio_robust.sh 2>&1 | tee download.log
+
+✓ Tries direct fasterq-dump (bypasses prefetch)
+✓ Falls back to ENA mirror (Europe)
+✓ Falls back to AWS S3 (if available)
+✓ Automatic retry logic
+
+================================================================
+
+METHOD 2: CONVERT EXISTING + DOWNLOAD PARENTS
+----------------------------------------------
+You already have proband SRA downloaded (2.4 GB)
+
+Step 1: Convert existing proband:
+cd /home/johan/pipeline/varcall
+./convert_existing_sra.sh
+
+Step 2: Download parents only:
+cd ~/output/autism
+
+# Mother
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/007/SRR8697627/SRR8697627_1.fastq.gz
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/007/SRR8697627/SRR8697627_2.fastq.gz
+mv SRR8697627_1.fastq.gz mother_1.fastq.gz
+mv SRR8697627_2.fastq.gz mother_2.fastq.gz
+
+# Father
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/005/SRR8697645/SRR8697645_1.fastq.gz
+wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/005/SRR8697645/SRR8697645_2.fastq.gz
+mv SRR8697645_1.fastq.gz father_1.fastq.gz
+mv SRR8697645_2.fastq.gz father_2.fastq.gz
+
+================================================================
+
+METHOD 3: MANUAL ENA DOWNLOAD (ALL 3 SAMPLES)
+----------------------------------------------
+Download pre-converted FASTQ from European mirror:
+
+cd ~/output/autism
+
+# Proband
+wget -c ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/006/SRR8697636/SRR8697636_1.fastq.gz
+wget -c ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR869/006/SRR8697636/SRR8697636_2.fastq.gz
+mv SRR8697636_*.fastq.gz proband_*.fastq.gz
+
+# Mother (same as Method 2)
+# Father (same as Method 2)
+
+================================================================
+
+AFTER DOWNLOAD COMPLETE:
+------------------------
+
+1. Verify files:
+   ls -lh ~/output/autism/*.fastq.gz
+
+   You should see 6 files (~5-8 GB each):
+   - proband_1.fastq.gz
+   - proband_2.fastq.gz
+   - mother_1.fastq.gz
+   - mother_2.fastq.gz
+   - father_1.fastq.gz
+   - father_2.fastq.gz
+
+2. Run preprocessing:
+   cd /home/johan/pipeline/varcall
+   conda activate varcall
+   ./preprocess_trio_optimized.sh 2>&1 | tee preprocess.log
+
+3. Run variant calling:
+   ./denovo_fam92_analysis.sh 2>&1 | tee denovo.log
+
+================================================================
+
+TROUBLESHOOTING:
+----------------
+
+Q: wget fails with "connection refused"?
+A: Your server might block FTP. Try Method 1 (robust downloader)
+
+Q: fasterq-dump is very slow?
+A: Normal for large files. Use 'screen' to run in background:
+   screen -S download
+   ./download_trio_robust.sh
+   [Ctrl+A, D to detach]
+
+Q: Out of disk space?
+A: Each sample needs ~20-30 GB. Total: ~180 GB for trio
+   Check: df -h ~
+
+================================================================
+
+RECOMMENDED: METHOD 2 (Fastest)
+-------------------------------
+Since you already have proband downloaded:
+
+1. ./convert_existing_sra.sh          (15-30 min)
+2. wget mother from ENA                (30-60 min)
+3. wget father from ENA                (30-60 min)
+4. Total time: ~2 hours vs 6-8 hours
+
+================================================================
+
+Created files in /home/johan/pipeline/varcall/:
+  ✓ download_trio_robust.sh       - Robust multi-method downloader
+  ✓ convert_existing_sra.sh       - Convert existing SRA
+  ✓ preprocess_trio_optimized.sh  - Full preprocessing pipeline
+  ✓ denovo_fam92_analysis.sh      - Variant calling & FAM92 analysis
+  ✓ DOWNLOAD_FIX.md               - Detailed troubleshooting
+  ✓ RUN_PIPELINE.md               - Complete pipeline guide
+
+================================================================
+Start with METHOD 2 for fastest results!
+================================================================

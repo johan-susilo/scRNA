@@ -43,11 +43,19 @@ option_list <- list(
   make_option(c("-d", "--datadir"), type = "character", default = ".",
               help = "Base directory containing sample folders [default: current directory]"),
   make_option(c("-s", "--step"), type = "character",
-              help = "Pipeline step: read_csv, process, integrate, plot, annotate, all"),
+              help = "Pipeline step: read_csv, process, integrate, plot, all"),
   make_option(c("-o", "--output"), type = "character", default = NULL,
               help = "Base output directory [overrides default output_base]"),
   make_option(c("-c", "--cores"), type = "integer", default = NULL,
-              help = "Number of cores for parallel processing [default: detect available cores]")
+              help = "Number of cores for parallel processing [default: detect available cores]"),
+  make_option(c("--doublet_rate"), type = "numeric", default = 0.08,
+              help = "Expected doublet formation rate [default: 0.08 for ~10k cells]"),
+  make_option(c("--min_features"), type = "integer", default = 200,
+              help = "Minimum number of features per cell [default: 200]"),
+  make_option(c("--max_features"), type = "integer", default = 5000,
+              help = "Maximum number of features per cell [default: 5000]"),
+  make_option(c("--max_mt"), type = "numeric", default = 30,
+              help = "Maximum mitochondrial percentage [default: 30]")
 )
 
 parser <- OptionParser(option_list = option_list)
@@ -163,7 +171,7 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
       return(output_rds)  # Return path, not object
     }
 
-    message("\nProcessing sample: ", sample_name)
+    message("\n==================== Processing sample: ", sample_name, " ====================")
     data_dir <- file.path(base_data_dir, sample_name)
 
     # Create a Seurat object
@@ -175,95 +183,116 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     )
     message("Created Seurat object for ", sample_name, " with dimensions: ", dim(seur_obj)[1], " features and ", dim(seur_obj)[2], " cells")
 
+    # ============ DOUBLET FINDER WORKFLOW  ============
+    message("Starting DoubletFinder workflow...")
 
-    # Run general flow of scRNA-seq by Seurat package
+    # Normalize, find variable features, scale data, run PCA
     seur_obj <- seur_obj %>%
       NormalizeData() %>%
       FindVariableFeatures() %>%
       ScaleData() %>%
-      RunPCA() %>%
-      RunUMAP(dims = 1:30)
+      RunPCA()
 
     # Plot elbow plot
     safe_save_pdf(ElbowPlot(seur_obj),
                   file.path(out_dirs$plots, paste0(sample_id, "_elbow1.pdf")))
 
-    seur_obj <- FindNeighbors(object = seur_obj, dims = 1:50)
-    seur_obj <- FindClusters(object = seur_obj)
-    seur_obj <- RunUMAP(object = seur_obj, dims = 1:30)
+    # Find neighbors and clusters (needed for DoubletFinder)
+    seur_obj <- seur_obj %>%
+      FindNeighbors(dims = 1:50) %>%
+      FindClusters() %>%
+      RunUMAP(dims = 1:30)
 
-    # Plot UMAP plot
+    # Plot initial UMAP
     safe_save_pdf(DimPlot(seur_obj, reduction = "umap", label = TRUE),
                   file.path(out_dirs$plots, paste0(sample_id, "_umap1.pdf")))
 
-    # pK Identification and doublet detection
+    # pK Identification (no ground-truth) - optimal parameter for DoubletFinder
+    message("Identifying optimal pK parameter...")
     sweep.res.list <- paramSweep(seur_obj, PCs = 1:20, sct = FALSE)
     sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
     bcmvn <- find.pK(sweep.stats)
 
-    safe_save_pdf(ggplot(bcmvn, aes(pK, BCmetric, group = 1)) + geom_point() + geom_line(),
+    safe_save_pdf(ggplot(bcmvn, aes(pK, BCmetric, group = 1)) +
+                    geom_point() + geom_line() +
+                    ggtitle(paste0("pK Identification - ", sample_name)) +
+                    theme_bw(),
                   file.path(out_dirs$plots, paste0(sample_id, "_pkplot.pdf")))
 
-    # Safely extract pK
-    pK_val <- as.numeric(as.character(bcmvn[bcmvn$BCmetric == max(bcmvn$BCmetric), ]$pK))
+    # Select optimal pK
+    pK <- bcmvn %>% filter(BCmetric == max(BCmetric)) %>% select(pK)
+    pK <- as.numeric(as.character(pK[[1]]))
+    message("Optimal pK: ", pK)
 
-    # Doublet detection and filtering
+    # Homotypic Doublet Proportion Estimate
     annotations <- seur_obj@meta.data$seurat_clusters
     homotypic.prop <- modelHomotypic(annotations)
-    nExp_poi <- round(0.08 * nrow(seur_obj@meta.data))
+    nExp_poi <- round(opt$doublet_rate * nrow(seur_obj@meta.data))  # Use configurable doublet rate
     nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+    message("Expected doublets: ", nExp_poi, " (adjusted: ", nExp_poi.adj, ")")
 
-    seur_obj <- doubletFinder(seur_obj, PCs = 1:20, pN = 0.25, pK = pK_val, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
-    
-    # --- CRITICAL FIX START: Dynamic Column Detection ---
-    # Do not assume index [7]. Find column by name pattern.
+    # Identify doublet cells
+    message("Running DoubletFinder...")
+    seur_obj <- doubletFinder(seur_obj, PCs = 1:20, pN = 0.25, pK = pK,
+                              nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
+
+    # Dynamic column detection (critical fix from previous version)
     DF_cols <- grep("DF.classifications", colnames(seur_obj@meta.data), value = TRUE)
-    
+
     if (length(DF_cols) == 0) {
       stop("DoubletFinder failed to add classification column for sample: ", sample_name)
     }
-    # Take the first match (usually the only one unless run multiple times)
-    DF_classification <- DF_cols[1] 
-    
-    # Plot unfiltered doublet plot
-    safe_save_pdf(DimPlot(seur_obj, reduction = 'umap', group.by = DF_classification, cols = doublet_color),
+    DF_classification <- DF_cols[1]
+    message("DoubletFinder classification column: ", DF_classification)
+
+    # Plot unfiltered doublet results
+    safe_save_pdf(DimPlot(seur_obj, reduction = 'umap', group.by = DF_classification, cols = doublet_color) +
+                    ggtitle(paste0("Doublets (Unfiltered) - ", sample_name)),
                   file.path(out_dirs$plots, paste0(sample_id, "_unfiltered_doublet.pdf")))
 
-    # Filter out doublets using the dynamically found column name
-    # Use subset() for safety
-    seur_obj <- subset(seur_obj, cells = rownames(seur_obj@meta.data)[seur_obj@meta.data[[DF_classification]] == "Singlet"])
-    # --- CRITICAL FIX END ---
+    # Check doublet statistics
+    doublet_table <- table(seur_obj@meta.data[[DF_classification]])
+    message("Doublet statistics:")
+    print(doublet_table)
 
-    # Add filtered doublet plot
-    safe_save_pdf(DimPlot(seur_obj, reduction = "umap", group.by = DF_classification, cols = doublet_color),
+    # Remove doublet cells (keep only Singlets)
+    singlet_indices <- which(seur_obj@meta.data[[DF_classification]] == "Singlet")
+    seur_obj <- seur_obj[, singlet_indices]
+    message("Cells after doublet removal: ", ncol(seur_obj))
+
+    # Plot filtered doublet results
+    safe_save_pdf(DimPlot(seur_obj, reduction = "umap", group.by = DF_classification, cols = doublet_color) +
+                    ggtitle(paste0("Doublets (Filtered) - ", sample_name)),
                   file.path(out_dirs$plots, paste0(sample_id, "_filtered_doublet.pdf")))
 
-    # QC metrics and filtering
+    # ============ QUALITY CONTROL  ============
+    message("Performing quality control...")
+
+    # Add metadata identifiers
     seur_obj$orig.ident1 <- sample_ident1
     seur_obj$orig.ident2 <- sample_ident2
 
-    # Calculate percent.mt safely (handles cases with no MT genes)
+    # Calculate mitochondrial percentage
     seur_obj[["percent.mt"]] <- PercentageFeatureSet(seur_obj, pattern = "^MT-")
 
-    # Check if percent.mt was actually created and is numeric
+    # Check if percent.mt was calculated
     if (!"percent.mt" %in% colnames(seur_obj@meta.data)) {
       message("Warning: percent.mt could not be calculated (no MT genes?). Setting to 0.")
       seur_obj$percent.mt <- 0
     }
 
-    # Add QC violin plots with explicit device handling
+    # QC violin plots
     pdf_file <- file.path(out_dirs$plots, paste0(sample_id, "_qc_violins.pdf"))
     tryCatch({
-      # Check if we have data to plot BEFORE opening PDF device
       qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
 
       if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
-        # Open PDF device only if validation passes
         pdf(pdf_file, width = 15, height = 15)
 
-        # Create plot with error handling
         vln_plot <- tryCatch({
-          VlnPlot(seur_obj, features = qc_feats, pt.size = 0.1, ncol = 3)
+          VlnPlot(seur_obj, features = qc_feats, pt.size = 0.1, ncol = 3) +
+            plot_annotation(title = paste0("QC Metrics - ", sample_name),
+                          theme = theme(plot.title = element_text(hjust = 0.5, size = 16)))
         }, error = function(e) {
           message("Warning: VlnPlot creation failed: ", conditionMessage(e))
           return(NULL)
@@ -272,8 +301,6 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
         if (!is.null(vln_plot)) {
           print(vln_plot)
           message("QC violin plots saved: ", pdf_file)
-        } else {
-          message("Warning: VlnPlot returned NULL for ", sample_id)
         }
 
         dev.off()
@@ -282,22 +309,27 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
       }
     }, error = function(e) {
       message("Warning: Error plotting QC violins for ", sample_id, ": ", conditionMessage(e))
-      # Clean up device if open
       if (length(dev.list()) > 0) {
         tryCatch(dev.off(), error = function(e2) {})
       }
     })
 
-    # Quality filtering
-    seur_obj <- subset(seur_obj, subset = nFeature_RNA > 200 & nFeature_RNA < 5000 & percent.mt < 30)
+    # Quality filtering using configurable parameters
+    message("Filtering cells with criteria: nFeature_RNA > ", opt$min_features,
+            " & < ", opt$max_features, ", percent.mt < ", opt$max_mt)
+    seur_obj <- subset(seur_obj, subset = nFeature_RNA > opt$min_features &
+                                          nFeature_RNA < opt$max_features &
+                                          percent.mt < opt$max_mt)
+    message("Cells after QC filtering: ", ncol(seur_obj))
 
     # Save processed object
     saveRDS(seur_obj, output_rds)
     message("Processed object saved: ", output_rds)
+    message("==================== Completed: ", sample_name, " ====================\n")
 
     # Return the file path instead of the object to avoid serialization issues in parallel
     return(output_rds)
-    
+
   }, error = function(e) {
     # If anything fails inside this function, catch it here so the other parallel workers don't die
     message("\nCRITICAL ERROR processing sample ", sample_name, ": ", e$message)
@@ -315,7 +347,9 @@ integrate_samples <- function(sample_list) {
     stop("No valid samples available for integration.")
   }
 
-  # Cell cycle scoring and normalization
+  message("\n==================== Starting Integration ====================")
+
+  # Cell cycle scoring and normalization 
   message("Starting normalization and cell cycle scoring for ", length(sample_list), " samples...")
   s.genes <- cc.genes$s.genes
   g2m.genes <- cc.genes$g2m.genes
@@ -328,7 +362,7 @@ integrate_samples <- function(sample_list) {
     return(x)
   })
 
-  # Integration - already in sequential mode
+  # Integration workflow 
   message("Selecting integration features...")
   features <- SelectIntegrationFeatures(object.list = TN.list)
 
@@ -342,16 +376,25 @@ integrate_samples <- function(sample_list) {
   DefaultAssay(TN.combined) <- "integrated"
   message("Data integration completed")
 
-  # Scaling, PCA, clustering
-  message("Scaling integrated data...")
-  TN.combined <- ScaleData(TN.combined, vars.to.regress = c("S.Score", "G2M.Score", "percent.mt"),
+  # Scaling with regression (from Yan's approach - regress out cell cycle and MT%)
+  message("Scaling integrated data with regression...")
+  TN.combined <- ScaleData(TN.combined,
+                          vars.to.regress = c("S.Score", "G2M.Score", "percent.mt"),
                           features = rownames(TN.combined), verbose = TRUE)
+
   message("Running PCA...")
   TN.combined <- RunPCA(TN.combined, npcs = 50, verbose = TRUE)
+
+  # Save elbow plot
+  safe_save_pdf(ElbowPlot(TN.combined, ndims = 50),
+                file.path(output_dirs$plots, "TNcombined_elbow.pdf"))
+
   message("Finding neighbors...")
   TN.combined <- FindNeighbors(TN.combined, reduction = "pca", dims = 1:30)
+
   message("Finding clusters...")
   TN.combined <- FindClusters(TN.combined, resolution = 0.5)
+
   message("Running UMAP...")
   TN.combined <- RunUMAP(TN.combined, reduction = "pca", dims = 1:30)
 
@@ -363,7 +406,7 @@ integrate_samples <- function(sample_list) {
   # Save integrated object
   message("Saving integrated object...")
   saveRDS(TN.combined, file = file.path(output_base, "TN.combined_dim30.rds"))
-  message("Integration complete!")
+  message("==================== Integration complete! ====================\n")
 
   return(TN.combined)
 }
@@ -422,47 +465,40 @@ create_summary_dot_plot <- function(seurat_object, output_dir) {
 
 generate_plots <- function(TN.combined) {
   Sys.time()
+  message("\n==================== Generating Plots ====================")
+
   # UMAP plots
-  pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_labelF.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(TN.combined, reduction = "umap", label = FALSE, pt.size = 0.8, cols = mycolor))
-  dev.off()
+  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = FALSE, pt.size = 0.8, cols = mycolor),
+                file.path(output_dirs$plots, "TNcombined_umap_labelF.pdf"))
 
-  pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_labelT.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(TN.combined, reduction = "umap", label = TRUE, pt.size = 0.8, cols = mycolor))
-  dev.off()
+  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, pt.size = 0.8, cols = mycolor),
+                file.path(output_dirs$plots, "TNcombined_umap_labelT.pdf"))
 
-  pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_groupbyorigident.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(TN.combined, group.by = "orig.ident", pt.size = 0.8, cols = mycolor))
-  dev.off()
+  safe_save_pdf(DimPlot(TN.combined, group.by = "orig.ident", pt.size = 0.8, cols = mycolor),
+                file.path(output_dirs$plots, "TNcombined_umap_groupbyorigident.pdf"))
 
-  pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_labelT_splitorigident1.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident1", pt.size = 0.8, ncol = 2, cols = mycolor))
-  dev.off()
+  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident1",
+                        pt.size = 0.8, ncol = 2, cols = mycolor),
+                file.path(output_dirs$plots, "TNcombined_umap_labelT_splitorigident1.pdf"))
 
-  pdf_file <- file.path(output_dirs$plots, "TNcombined_umap_labelT_splitsample.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident2", pt.size = 0.8, ncol = 2, cols = mycolor))
-  dev.off()
-
+  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident2",
+                        pt.size = 0.8, ncol = 2, cols = mycolor),
+                file.path(output_dirs$plots, "TNcombined_umap_labelT_splitsample.pdf"))
 
   # Heatmap generation
   CellNumber <- table(Idents(TN.combined), TN.combined$orig.ident1)
   cluster_count <- nrow(CellNumber)
 
+  message("Finding all markers for ", cluster_count, " clusters...")
   Heatmapall <- subset(TN.combined, idents = 0:(cluster_count - 1))
   Heatmapall.markers <- FindAllMarkers(Heatmapall, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
   write.csv(Heatmapall.markers, file = file.path(output_dirs$tables, "Findallmarkers.csv"), row.names = FALSE)
 
   top10 <- Heatmapall.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
 
-  pdf_file <- file.path(output_dirs$plots, "heatmap_top10.pdf")
-  pdf(pdf_file, width = 25, height = 25)
-  print(DoHeatmap(Heatmapall, features = top10$gene))
-  dev.off()
+  safe_save_pdf(DoHeatmap(Heatmapall, features = top10$gene),
+                file.path(output_dirs$plots, "heatmap_top10.pdf"),
+                w = 25, h = 25)
 
   # Cell proportion statistics
   Cellproportion <- table(Idents(TN.combined), TN.combined$orig.ident1)
@@ -482,10 +518,9 @@ generate_plots <- function(TN.combined) {
     theme(legend.title = element_blank()) +
     scale_fill_manual(values = mycolors)
 
-  pdf_file <- file.path(output_dirs$plots, "proportion_plot.pdf")
-  pdf(pdf_file, width = 15, height = 15)
-  print(proportion_plot)
-  dev.off()
+  safe_save_pdf(proportion_plot, file.path(output_dirs$plots, "proportion_plot.pdf"))
+
+  message("==================== Plots completed! ====================\n")
 }
 
 run_and_plot_pca <- function(seurat_object, output_plots_dir) {
@@ -567,9 +602,9 @@ execute_step <- function(step) {
       sample_files <- list.files(output_dirs$processed,
                                pattern = "_processed.rds$",
                                full.names = TRUE)
-      
+
       if (length(sample_files) == 0) stop("No processed sample files found in ", output_dirs$processed)
-      
+
       sample_list <- lapply(sample_files, readRDS)
       integrate_samples(sample_list)
     },

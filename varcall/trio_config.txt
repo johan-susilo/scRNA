@@ -1,0 +1,26 @@
+# Trio Configuration File
+#
+# IMPORTANT: Update these SRA IDs with your actual trio data
+# You need THREE samples: Proband (affected child) + Father + Mother
+
+# Current sample found:
+PROBAND_SRA=SRR8697636
+
+# REQUIRED: Add the SRA IDs for parents
+# You need to find these from the SRA database
+# They should be from the same BioProject/study
+FATHER_SRA=SRR8697637   # CHANGE THIS
+MOTHER_SRA=SRR8697638   # CHANGE THIS
+
+# How to find parent SRA IDs:
+# 1. Go to https://www.ncbi.nlm.nih.gov/sra/SRR8697636
+# 2. Look for "BioProject" or "Study" link
+# 3. Find the corresponding father and mother samples
+# 4. Update the SRA IDs above
+
+# Alternative: If you only have the proband
+# You cannot perform de novo analysis without the parents
+# Consider:
+# - Variant calling on proband only
+# - Filtering against population databases (gnomAD)
+# - Focusing on known ASD genes
