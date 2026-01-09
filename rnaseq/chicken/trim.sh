@@ -1,4 +1,6 @@
 #!/bin/bash
+# Trim adapters from raw FASTQ files using Cutadapt + FastQC
+
 set -euo pipefail
 
 date
@@ -6,30 +8,31 @@ echo "#################"
 echo "# TRIM STARTING #"
 echo "#################"
 
-# --- paths you already use
-OUTPUT="/home/johan/johan/output/chicken"
-RAW="/mnt/2_80T/Data/TS250721001"
-LOG="${OUTPUT}/log"
-METADATA="/home/johan/pipeline/rnaseq/chicken/sample.csv"
+# Configuration - Edit these paths for your system
+OUTPUT="/home/johan/johan/output/chicken"     # Output directory
+RAW="/mnt/2_80T/Data/TS250721001"             # Raw FASTQ directory
+LOG="${OUTPUT}/log"                            # Log files directory
+METADATA="/home/johan/pipeline/rnaseq/chicken/sample.csv"  # Sample metadata
 
-AVAILABLE_CORES=$(nproc)
-CUTADAPT_THREADS=$((AVAILABLE_CORES / 2 > 0 ? AVAILABLE_CORES / 2 : 1))
-FASTQC_THREADS=1
-MAX_CONCURRENT=$AVAILABLE_CORES
+# Thread configuration
+AVAILABLE_CORES=$(nproc)                       # Detect available CPU cores
+CUTADAPT_THREADS=$((AVAILABLE_CORES / 2 > 0 ? AVAILABLE_CORES / 2 : 1))  # Half cores for cutadapt
+FASTQC_THREADS=1                               # FastQC threads per job
+MAX_CONCURRENT=$AVAILABLE_CORES                # Max parallel jobs
 
-# Replace single ADAPTER with pair-specific adapters:
-ADAPTER_R1="ACTGTCTCTTATACACATCT"
-ADAPTER_R2="ACTGTCTCTTATACACATCT"
-MIN_LENGTH=20
+# Trimming parameters
+ADAPTER_R1="ACTGTCTCTTATACACATCT"              # Illumina TruSeq adapter R1
+ADAPTER_R2="ACTGTCTCTTATACACATCT"              # Illumina TruSeq adapter R2
+MIN_LENGTH=20                                  # Minimum read length after trimming
 
-# ensure base dirs exist and are writable
-mkdir -p "${OUTPUT}" "${LOG}"
-umask 002
+# Create directories
+mkdir -p "${OUTPUT}" "${LOG}"                  # Ensure output directories exist
+umask 002                                      # Set permissions
 
 echo "RAW: ${RAW}"
 echo "OUTPUT: ${OUTPUT}"
 
-# --- build per-sample R1/R2 from METADATA (skip header / comments)
+# Parse metadata CSV to build R1/R2 file pairs per sample
 declare -A r1_map r2_map s_seen
 while IFS=, read -r col_file col_base col_sample _spp _subj _animal _tissue _tcode _rep _egg col_readpair; do
   [[ -z "${col_file}" ]] && continue
@@ -51,9 +54,9 @@ done < "${METADATA}"
 
 (( ${#s_seen[@]} > 0 )) || { echo "No samples found in ${METADATA}"; exit 1; }
 
-# --- build job lists
-pairs=()    # fields: in1<<<in2<<<out1<<<out2<<<outdir<<<a1<<<a2
-singles=()  # fields: in<<<out<<<outdir<<<adapter
+# Build job lists for paired-end and single-end files
+pairs=()    # Paired-end jobs: in1<<<in2<<<out1<<<out2<<<outdir<<<a1<<<a2
+singles=()  # Single-end jobs: in<<<out<<<outdir<<<adapter
 for sample in "${!s_seen[@]}"; do
   in1="${r1_map[$sample]:-}"
   in2="${r2_map[$sample]:-}"
@@ -90,18 +93,18 @@ if (( ${#pairs[@]} + ${#singles[@]} == 0 )); then
   exit 1
 fi
 
-# --- tool checks
+# Check required tools
 command -v cutadapt >/dev/null || { echo "cutadapt not in PATH"; exit 1; }
 command -v fastqc   >/dev/null || { echo "fastqc not in PATH";   exit 1; }
 
-# --- run paired-end jobs
+# Run paired-end trimming (R1 + R2)
 if (( ${#pairs[@]} > 0 )); then
   if command -v parallel >/dev/null 2>&1; then
     printf "%s\n" "${pairs[@]}" | parallel -j "${MAX_CONCURRENT}" --colsep '<<<' --lb '
       in1={1}; in2={2}; out1={3}; out2={4}; outdir={5}; a1={6}; a2={7};
       mkdir -p "$outdir" && chmod u+rwx,go+rx "$outdir" || exit 1
       cutadapt -j '"${CUTADAPT_THREADS}"' -a "$a1" -A "$a2" -m '"${MIN_LENGTH}"' \
-        -o "$out1" -p "$out2" "$in1" "$in2" 2>>"'"${LOG}"'/cutadapt.log"
+        -o "$out1" -p "$out2" "$in1" "$in2" 2>>"'"${LOG}"'/cutadapt.log"  # Trim both R1 and R2
       echo "Finished cutadapt (PE) for $out1 and $out2, starting FastQC..." >>"'"${LOG}"'/fastqc.log"
       fastqc -t '"${FASTQC_THREADS}"' -o "$outdir" "$out1" "$out2" >>"'"${LOG}"'/fastqc.log" 2>&1 \
         || echo "FastQC failed for $out1/$out2" >>"'"${LOG}"'/fastqc.log"
@@ -114,7 +117,7 @@ if (( ${#pairs[@]} > 0 )); then
         IFS='<<<' read -r in1 in2 out1 out2 outdir a1 a2 <<< "${job}"
         mkdir -p "$outdir" && chmod u+rwx,go+rx "$outdir"
         cutadapt -j "${CUTADAPT_THREADS}" -a "${a1}" -A "${a2}" -m "${MIN_LENGTH}" \
-          -o "${out1}" -p "${out2}" --trim-n "${in1}" "${in2}" 2>>"${LOG}/cutadapt.log"
+          -o "${out1}" -p "${out2}" --trim-n "${in1}" "${in2}" 2>>"${LOG}/cutadapt.log"  # Trim both R1 and R2
         echo "Finished cutadapt (PE) for ${out1}/${out2}, starting FastQC..." >>"${LOG}/fastqc.log"
         fastqc -t "${FASTQC_THREADS}" -o "${outdir}" "${out1}" "${out2}" >>"${LOG}/fastqc.log" 2>&1 \
           || echo "FastQC failed for ${out1}/${out2}" >> "${LOG}/fastqc.log"
@@ -125,13 +128,13 @@ if (( ${#pairs[@]} > 0 )); then
   fi
 fi
 
-# --- run single-end jobs
+# Run single-end trimming (orphaned R1 or R2)
 if (( ${#singles[@]} > 0 )); then
   if command -v parallel >/dev/null 2>&1; then
     printf "%s\n" "${singles[@]}" | parallel -j "${MAX_CONCURRENT}" --colsep '<<<' --lb '
       inp={1}; out={2}; outdir={3}; adapter={4};
       mkdir -p "$outdir" && chmod u+rwx,go+rx "$outdir" || exit 1
-      cutadapt -j '"${CUTADAPT_THREADS}"' -a "$adapter" -m '"${MIN_LENGTH}"' -o "$out" "$inp" 2>>"'"${LOG}"'/cutadapt.log"
+      cutadapt -j '"${CUTADAPT_THREADS}"' -a "$adapter" -m '"${MIN_LENGTH}"' -o "$out" "$inp" 2>>"'"${LOG}"'/cutadapt.log"  # Trim single file
       echo "Finished cutadapt (SE) for $out, starting FastQC..." >>"'"${LOG}"'/fastqc.log"
       fastqc -t '"${FASTQC_THREADS}"' -o "$outdir" "$out" >>"'"${LOG}"'/fastqc.log" 2>&1 \
         || echo "FastQC failed for $out" >>"'"${LOG}"'/fastqc.log"
@@ -143,7 +146,7 @@ if (( ${#singles[@]} > 0 )); then
       (
         IFS='<<<' read -r inp out outdir adapter <<< "${job}"
         mkdir -p "$outdir" && chmod u+rwx,go+rx "$outdir"
-        cutadapt -j "${CUTADAPT_THREADS}" -a "${adapter}" -m "${MIN_LENGTH}" -o "${out}" "${inp}" 2>>"${LOG}/cutadapt.log"
+        cutadapt -j "${CUTADAPT_THREADS}" -a "${adapter}" -m "${MIN_LENGTH}" -o "${out}" "${inp}" 2>>"${LOG}/cutadapt.log"  # Trim single file
         echo "Finished cutadapt (SE) for ${out}, starting FastQC..." >>"${LOG}/fastqc.log"
         fastqc -t "${FASTQC_THREADS}" -o "${outdir}" "${out}" >>"${LOG}/fastqc.log" 2>&1 \
           || echo "FastQC failed for ${out}" >> "${LOG}/fastqc.log"

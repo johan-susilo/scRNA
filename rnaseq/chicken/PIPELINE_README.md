@@ -79,25 +79,51 @@ bash count.sh
 
 ---
 
-### 5. `differential.sh` - Differential Expression
+### 5. `combine_htseq_reports.py` - Combine Count Files
+
+**What it does:** Merges individual HTSeq count files into a single count matrix
+
+**How to use:**
+```bash
+python3 combine_htseq_reports.py --data_folder ${OUTPUT} --mode count
+```
+
+**Input:** Individual count files from count.sh
+
+**Output:**
+- `combined_counts.tsv` - Count matrix (genes × samples)
+- `metadata.tsv` - Sample metadata extracted from filenames
+
+**When to use:** After counting all samples, before differential expression
+
+---
+
+### 6. `differential.R` - Differential Expression
 
 **What it does:** Runs DESeq2 for statistical analysis of gene expression
 
 **How to use:**
 ```bash
-bash differential.sh RNA
+# Edit paths and comparison groups in differential.R first
+nano differential.R
+
+# Run differential expression analysis
+Rscript differential.R
 ```
 
-**Output:** `${OUTPUT}/differential_expression/`
-- `results_table.csv` - All genes
-- `significant_genes.csv` - Filtered genes (padj < 0.05)
+**Input required:**
+- Count matrix from combine_htseq_reports.py
+- Sample metadata
+
+**Output:** `${OUTPUT}/DGE/`
+- `result_*.csv` - DE results for each comparison
 - `plots/` - MA plot, volcano plot, PCA, heatmap
 
-**When to use:** After counting (final step)
+**When to use:** After combining count files
 
 ---
 
-### 6. `go.R` - Gene Ontology Enrichment Analysis
+### 7. `go.R` - Gene Ontology Enrichment Analysis
 
 **What it does:** Performs GO enrichment analysis on differentially expressed genes
 
@@ -111,7 +137,7 @@ Rscript go.R
 ```
 
 **Input required:**
-- DE results file (CSV from differential.sh)
+- DE results file (CSV from differential.R)
 - GO annotation file (GAF format)
 - Set thresholds: `padj_threshold` and `lfc_threshold`
 
@@ -125,7 +151,7 @@ Rscript go.R
 
 ---
 
-### 7. `check.sh` - Status Check
+### 8. `check.sh` - Status Check
 
 **What it does:** Checks which samples have completed each step
 
@@ -154,10 +180,13 @@ bash map.sh
 # Step 4: Counting
 bash count.sh
 
-# Step 5: Differential expression
-bash differential.sh RNA
+# Step 5: Combine count files into matrix
+python3 combine_htseq_reports.py --data_folder /home/johan/johan/output/chicken --mode count
 
-# Step 6: Gene Ontology enrichment 
+# Step 6: Differential expression
+Rscript differential.R
+
+# Step 7: Gene Ontology enrichment (optional)
 Rscript go.R
 ```
 
@@ -239,27 +268,28 @@ output/
 
 ## Quick Reference
 
-| Script | Input | Output | Time/Sample |
-|--------|-------|--------|-------------|
-| `preprocess.sh` | Raw FASTQ | FastQC HTML | 5-10 min |
-| `trim.sh` | Raw FASTQ | Trimmed FASTQ | 10-20 min |
-| `map.sh` | Trimmed FASTQ | Sorted BAM | 20-40 min |
-| `count.sh` | BAM files | Count tables | 10-30 min |
-| `differential.sh` | Count tables | DE results | 5-15 min |
-| `go.R` | DE results | GO enrichment | 2-5 min |
+| Script | Input | Output | Time |
+|--------|-------|--------|------|
+| `preprocess.sh` | Raw FASTQ | FastQC HTML | 5-10 min/sample |
+| `trim.sh` | Raw FASTQ | Trimmed FASTQ | 10-20 min/sample |
+| `map.sh` | Trimmed FASTQ | Sorted BAM | 20-40 min/sample |
+| `count.sh` | BAM files | Count tables | 10-30 min/sample |
+| `combine_htseq_reports.py` | Count tables | Count matrix | <1 min total |
+| `differential.R` | Count matrix | DE results | 5-15 min total |
+| `go.R` | DE results | GO enrichment | 2-5 min total |
 
 ---
 
 ## Helper Files
 
 ### R Scripts:
-- `differential.R` - DESeq2 analysis code (called by differential.sh)
+- `differential.R` - DESeq2 analysis code (see Script #6 above)
 - `differential2.R` - Alternative DE analysis
 - `go.R` - Gene Ontology enrichment analysis
 - `go copy.R` - Backup of GO script
 
 ### Python Scripts:
-- `combine_htseq_reports.py` - Merge count files into matrix
+- `combine_htseq_reports.py` - Merge count files into matrix (see Script #5 above)
 
 ### Config Files:
 - `sample.csv` - Sample metadata
@@ -274,6 +304,7 @@ output/
 - STAR (v2.7+)
 - Samtools (v1.10+)
 - HTSeq (v0.13+)
+- Python 3 with pandas
 - R (v4.0+) with packages:
   - DESeq2
   - ggplot2
@@ -285,7 +316,7 @@ output/
 **Install command-line tools:**
 ```bash
 sudo apt install fastqc samtools parallel
-pip install cutadapt htseq
+pip install cutadapt htseq pandas
 conda install -c bioconda star
 ```
 
