@@ -17,7 +17,7 @@ suppressPackageStartupMessages({
   library(ggpubr)
   library(cowplot)
   library(gridExtra)
-  library(clusterProfiler)
+  # library(clusterProfiler)  # Not used in this pipeline, commented out to avoid dependency issues
   library(gplots)
   library(ggplot2)
   library(ggnewscale)
@@ -36,6 +36,80 @@ suppressPackageStartupMessages({
 
 # --- Increase Global Memory Limit for Parallel Processing ---
 options(future.globals.maxSize = 100 * 1024^3)
+
+# --- Helper Function for QC Violin Plots (workaround for Seurat v5.3.1 VlnPlot bug) ---
+create_qc_violin_plot <- function(seurat_obj, features, title) {
+  # Get cluster identity if available
+  if ("seurat_clusters" %in% colnames(seurat_obj@meta.data)) {
+    cluster_id <- "seurat_clusters"
+  } else if (length(levels(Idents(seurat_obj))) > 1) {
+    # Add current idents as a column
+    seurat_obj@meta.data$temp_ident <- Idents(seurat_obj)
+    cluster_id <- "temp_ident"
+  } else {
+    cluster_id <- NULL
+  }
+
+  # Extract metadata for specified features
+  if (!is.null(cluster_id)) {
+    qc_data <- seurat_obj@meta.data %>%
+      select(all_of(c(features, cluster_id))) %>%
+      mutate(cell = rownames(seurat_obj@meta.data)) %>%
+      pivot_longer(cols = all_of(features), names_to = 'metric', values_to = 'value')
+
+    # Rename cluster column for consistency
+    colnames(qc_data)[colnames(qc_data) == cluster_id] <- "Identity"
+    qc_data$Identity <- as.factor(qc_data$Identity)
+
+    # Generate colors based on number of clusters
+    n_clusters <- length(unique(qc_data$Identity))
+    if (n_clusters <= 12) {
+      colors <- colorRampPalette(brewer.pal(min(n_clusters, 12), "Paired"))(n_clusters)
+    } else {
+      colors <- colorRampPalette(brewer.pal(12, "Set3"))(n_clusters)
+    }
+
+    # Create violin plot grouped by cluster
+    p <- ggplot(qc_data, aes(x = Identity, y = value, fill = Identity)) +
+      geom_violin(trim = FALSE, scale = "width") +
+      geom_jitter(size = 0.1, alpha = 0.1, width = 0.2) +
+      facet_wrap(~metric, scales = 'free', ncol = length(features)) +
+      scale_fill_manual(values = colors) +
+      theme_bw(base_size = 12) +
+      theme(
+        legend.position = 'none',
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        strip.text = element_text(size = 12, face = "bold"),
+        strip.background = element_rect(fill = "lightgray")
+      ) +
+      labs(title = title, x = 'Identity', y = 'Value')
+  } else {
+    # Fallback: no clustering information available
+    qc_data <- seurat_obj@meta.data %>%
+      select(all_of(features)) %>%
+      mutate(cell = rownames(seurat_obj@meta.data),
+             Identity = "All") %>%
+      pivot_longer(cols = all_of(features), names_to = 'metric', values_to = 'value')
+
+    # Create simple violin plot
+    p <- ggplot(qc_data, aes(x = Identity, y = value, fill = metric)) +
+      geom_violin(trim = FALSE, scale = "width") +
+      geom_jitter(size = 0.1, alpha = 0.2, width = 0.2) +
+      facet_wrap(~metric, scales = 'free', ncol = length(features)) +
+      theme_bw(base_size = 12) +
+      theme(
+        legend.position = 'none',
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(size = 12, face = "bold"),
+        strip.background = element_rect(fill = "lightgray")
+      ) +
+      labs(title = title, x = '', y = 'Value')
+  }
+
+  return(p)
+}
 
 # Command-line Interface ----------------------------------------------------
 option_list <- list(
@@ -174,6 +248,10 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     message("\n==================== Processing sample: ", sample_name, " ====================")
     data_dir <- file.path(base_data_dir, sample_name)
 
+    # Create sample-specific plot directories
+    sample_plot_dir <- file.path(out_dirs$plots, sample_name)
+    dir.create(sample_plot_dir, recursive = TRUE, showWarnings = FALSE)
+
     # Create a Seurat object
     seur_obj <- CreateSeuratObject(
       counts = Read10X(data.dir = data_dir),
@@ -182,6 +260,85 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
       min.features = 10
     )
     message("Created Seurat object for ", sample_name, " with dimensions: ", dim(seur_obj)[1], " features and ", dim(seur_obj)[2], " cells")
+
+    # ============ QC METRICS (BEFORE ANY FILTERING) ============
+    message("Calculating QC metrics...")
+    seur_obj[["percent.mt"]] <- PercentageFeatureSet(seur_obj, pattern = "^MT-")
+
+    # QC violin plots BEFORE filtering
+    pdf_file <- file.path(sample_plot_dir, paste0(sample_id, "_01_qc_violins_unfiltered.pdf"))
+    tryCatch({
+      qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+      if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
+        pdf(pdf_file, width = 15, height = 5)
+
+        vln_plot <- tryCatch({
+          create_qc_violin_plot(seur_obj, qc_feats, paste0("QC Metrics (Unfiltered) - ", sample_name))
+        }, error = function(e) {
+          message("Warning: QC plot creation failed: ", conditionMessage(e))
+          return(NULL)
+        })
+
+        if (!is.null(vln_plot)) {
+          print(vln_plot)
+          message("QC violin plots (unfiltered) saved: ", pdf_file)
+        }
+
+        dev.off()
+      } else {
+        message("Warning: Cannot create VlnPlot - missing columns or empty object for ", sample_id)
+      }
+    }, error = function(e) {
+      message("Warning: Error plotting QC violins for ", sample_id, ": ", conditionMessage(e))
+      if (length(dev.list()) > 0) {
+        tryCatch(dev.off(), error = function(e2) {})
+      }
+    })
+
+    # ============ PRE-FILTERING (BEFORE DOUBLET FINDER) ============
+    # This significantly speeds up DoubletFinder by removing obvious empty droplets
+    message("Pre-filtering to remove empty droplets...")
+
+    # Apply basic pre-filtering to remove obvious junk
+    cells_before_prefilter <- ncol(seur_obj)
+    seur_obj <- subset(seur_obj, subset = nFeature_RNA > 200 & nFeature_RNA < 10000 & percent.mt < 50)
+    cells_after_prefilter <- ncol(seur_obj)
+
+    message("Pre-filtering removed ", cells_before_prefilter - cells_after_prefilter,
+            " empty droplets (", round((cells_before_prefilter - cells_after_prefilter) / cells_before_prefilter * 100, 2),
+            "%), keeping ", cells_after_prefilter, " cells for DoubletFinder")
+
+    # QC violin plots AFTER pre-filtering
+    pdf_file <- file.path(sample_plot_dir, paste0(sample_id, "_02_qc_violins_prefiltered.pdf"))
+    tryCatch({
+      qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+      if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
+        pdf(pdf_file, width = 15, height = 5)
+
+        vln_plot <- tryCatch({
+          create_qc_violin_plot(seur_obj, qc_feats, paste0("QC Metrics (Pre-filtered) - ", sample_name))
+        }, error = function(e) {
+          message("Warning: QC plot creation failed: ", conditionMessage(e))
+          return(NULL)
+        })
+
+        if (!is.null(vln_plot)) {
+          print(vln_plot)
+          message("QC violin plots (pre-filtered) saved: ", pdf_file)
+        }
+
+        dev.off()
+      } else {
+        message("Warning: Cannot create VlnPlot - missing columns or empty object for ", sample_id)
+      }
+    }, error = function(e) {
+      message("Warning: Error plotting QC violins for ", sample_id, ": ", conditionMessage(e))
+      if (length(dev.list()) > 0) {
+        tryCatch(dev.off(), error = function(e2) {})
+      }
+    })
 
     # ============ DOUBLET FINDER WORKFLOW  ============
     message("Starting DoubletFinder workflow...")
@@ -195,7 +352,7 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
 
     # Plot elbow plot
     safe_save_pdf(ElbowPlot(seur_obj),
-                  file.path(out_dirs$plots, paste0(sample_id, "_elbow1.pdf")))
+                  file.path(sample_plot_dir, paste0(sample_id, "_03_elbow.pdf")))
 
     # Find neighbors and clusters (needed for DoubletFinder)
     seur_obj <- seur_obj %>%
@@ -205,7 +362,7 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
 
     # Plot initial UMAP
     safe_save_pdf(DimPlot(seur_obj, reduction = "umap", label = TRUE),
-                  file.path(out_dirs$plots, paste0(sample_id, "_umap1.pdf")))
+                  file.path(sample_plot_dir, paste0(sample_id, "_04_umap_initial.pdf")))
 
     # pK Identification (no ground-truth) - optimal parameter for DoubletFinder
     message("Identifying optimal pK parameter...")
@@ -217,7 +374,7 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
                     geom_point() + geom_line() +
                     ggtitle(paste0("pK Identification - ", sample_name)) +
                     theme_bw(),
-                  file.path(out_dirs$plots, paste0(sample_id, "_pkplot.pdf")))
+                  file.path(sample_plot_dir, paste0(sample_id, "_05_doubletfinder_pk.pdf")))
 
     # Select optimal pK
     pK <- bcmvn %>% filter(BCmetric == max(BCmetric)) %>% select(pK)
@@ -247,8 +404,8 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
 
     # Plot unfiltered doublet results
     safe_save_pdf(DimPlot(seur_obj, reduction = 'umap', group.by = DF_classification, cols = doublet_color) +
-                    ggtitle(paste0("Doublets (Unfiltered) - ", sample_name)),
-                  file.path(out_dirs$plots, paste0(sample_id, "_unfiltered_doublet.pdf")))
+                    ggtitle(paste0("Doublets (Before Removal) - ", sample_name)),
+                  file.path(sample_plot_dir, paste0(sample_id, "_06_doublets_unfiltered.pdf")))
 
     # Check doublet statistics
     doublet_table <- table(seur_obj@meta.data[[DF_classification]])
@@ -262,45 +419,27 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
 
     # Plot filtered doublet results
     safe_save_pdf(DimPlot(seur_obj, reduction = "umap", group.by = DF_classification, cols = doublet_color) +
-                    ggtitle(paste0("Doublets (Filtered) - ", sample_name)),
-                  file.path(out_dirs$plots, paste0(sample_id, "_filtered_doublet.pdf")))
+                    ggtitle(paste0("Doublets (After Removal) - ", sample_name)),
+                  file.path(sample_plot_dir, paste0(sample_id, "_07_doublets_filtered.pdf")))
 
-    # ============ QUALITY CONTROL  ============
-    message("Performing quality control...")
-
-    # Add metadata identifiers
-    seur_obj$orig.ident1 <- sample_ident1
-    seur_obj$orig.ident2 <- sample_ident2
-
-    # Calculate mitochondrial percentage
-    seur_obj[["percent.mt"]] <- PercentageFeatureSet(seur_obj, pattern = "^MT-")
-
-    # Check if percent.mt was calculated
-    if (!"percent.mt" %in% colnames(seur_obj@meta.data)) {
-      message("Warning: percent.mt could not be calculated (no MT genes?). Setting to 0.")
-      seur_obj$percent.mt <- 0
-    }
-
-    # QC violin plots
-    pdf_file <- file.path(out_dirs$plots, paste0(sample_id, "_qc_violins.pdf"))
+    # QC violin plots AFTER doublet removal
+    pdf_file <- file.path(sample_plot_dir, paste0(sample_id, "_08_qc_violins_post_doublet.pdf"))
     tryCatch({
       qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
 
       if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
-        pdf(pdf_file, width = 15, height = 15)
+        pdf(pdf_file, width = 15, height = 5)
 
         vln_plot <- tryCatch({
-          VlnPlot(seur_obj, features = qc_feats, pt.size = 0.1, ncol = 3) +
-            plot_annotation(title = paste0("QC Metrics - ", sample_name),
-                          theme = theme(plot.title = element_text(hjust = 0.5, size = 16)))
+          create_qc_violin_plot(seur_obj, qc_feats, paste0("QC Metrics (Post-Doublet Removal) - ", sample_name))
         }, error = function(e) {
-          message("Warning: VlnPlot creation failed: ", conditionMessage(e))
+          message("Warning: QC plot creation failed: ", conditionMessage(e))
           return(NULL)
         })
 
         if (!is.null(vln_plot)) {
           print(vln_plot)
-          message("QC violin plots saved: ", pdf_file)
+          message("QC violin plots (post-doublet) saved: ", pdf_file)
         }
 
         dev.off()
@@ -314,13 +453,54 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
       }
     })
 
+    # ============ QUALITY CONTROL  ============
+    message("Performing final quality control filtering...")
+
+    # Add metadata identifiers
+    seur_obj$orig.ident1 <- sample_ident1
+    seur_obj$orig.ident2 <- sample_ident2
+
     # Quality filtering using configurable parameters
     message("Filtering cells with criteria: nFeature_RNA > ", opt$min_features,
             " & < ", opt$max_features, ", percent.mt < ", opt$max_mt)
+    cells_before_final_qc <- ncol(seur_obj)
     seur_obj <- subset(seur_obj, subset = nFeature_RNA > opt$min_features &
                                           nFeature_RNA < opt$max_features &
                                           percent.mt < opt$max_mt)
-    message("Cells after QC filtering: ", ncol(seur_obj))
+    cells_after_final_qc <- ncol(seur_obj)
+    message("Final QC filtering removed ", cells_before_final_qc - cells_after_final_qc,
+            " cells, keeping ", cells_after_final_qc, " high-quality cells")
+
+    # QC violin plots AFTER final filtering
+    pdf_file <- file.path(sample_plot_dir, paste0(sample_id, "_09_qc_violins_final.pdf"))
+    tryCatch({
+      qc_feats <- c("nFeature_RNA", "nCount_RNA", "percent.mt")
+
+      if (all(qc_feats %in% colnames(seur_obj@meta.data)) && ncol(seur_obj) > 0) {
+        pdf(pdf_file, width = 15, height = 5)
+
+        vln_plot <- tryCatch({
+          create_qc_violin_plot(seur_obj, qc_feats, paste0("QC Metrics (Final Filtered) - ", sample_name))
+        }, error = function(e) {
+          message("Warning: QC plot creation failed: ", conditionMessage(e))
+          return(NULL)
+        })
+
+        if (!is.null(vln_plot)) {
+          print(vln_plot)
+          message("QC violin plots (final) saved: ", pdf_file)
+        }
+
+        dev.off()
+      } else {
+        message("Warning: Cannot create VlnPlot - missing columns or empty object for ", sample_id)
+      }
+    }, error = function(e) {
+      message("Warning: Error plotting QC violins for ", sample_id, ": ", conditionMessage(e))
+      if (length(dev.list()) > 0) {
+        tryCatch(dev.off(), error = function(e2) {})
+      }
+    })
 
     # Save processed object
     saveRDS(seur_obj, output_rds)
@@ -362,14 +542,23 @@ integrate_samples <- function(sample_list) {
     return(x)
   })
 
-  # Integration workflow 
+  # Integration workflow
   message("Selecting integration features...")
   features <- SelectIntegrationFeatures(object.list = TN.list)
 
-  message("Finding integration anchors (this may take a while)...")
-  TN.anchors <- FindIntegrationAnchors(object.list = TN.list, dims = 1:30, verbose = TRUE)
-  saveRDS(TN.anchors, file.path(output_base, "TN.anchorsdim30.rds"))
-  message("Integration anchors saved")
+  # Check if integration anchors already exist
+  anchors_rds <- file.path(output_base, "TN.anchorsdim30.rds")
+
+  if (file.exists(anchors_rds)) {
+    message("Loading existing integration anchors from: ", anchors_rds)
+    TN.anchors <- readRDS(anchors_rds)
+    message("Integration anchors loaded successfully")
+  } else {
+    message("Finding integration anchors (this may take a while)...")
+    TN.anchors <- FindIntegrationAnchors(object.list = TN.list, dims = 1:30, verbose = TRUE)
+    saveRDS(TN.anchors, anchors_rds)
+    message("Integration anchors saved to: ", anchors_rds)
+  }
 
   message("Integrating data...")
   TN.combined <- IntegrateData(anchorset = TN.anchors, dims = 1:30, verbose = TRUE)
@@ -474,7 +663,7 @@ generate_plots <- function(TN.combined) {
   safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, pt.size = 0.8, cols = mycolor),
                 file.path(output_dirs$plots, "TNcombined_umap_labelT.pdf"))
 
-  safe_save_pdf(DimPlot(TN.combined, group.by = "orig.ident", pt.size = 0.8, cols = mycolor),
+  safe_save_pdf(DimPlot(TN.combined, group.by = "orig.ident2", pt.size = 0.8, cols = mycolor),
                 file.path(output_dirs$plots, "TNcombined_umap_groupbyorigident.pdf"))
 
   safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident1",
@@ -505,7 +694,7 @@ generate_plots <- function(TN.combined) {
   Cellproportion <- round(sweep(Cellproportion, MARGIN = 2, STATS = colSums(Cellproportion), FUN = "/") * 100, 2)
   write.csv(Cellproportion, file = file.path(output_dirs$tables, "Cellproportion.csv"), row.names = TRUE)
 
-  # Cell proportion plot
+  # Cell proportion plot - clusters across samples
   Cellproportion_df <- as.data.frame(Cellproportion)
   nb.cols <- nrow(CellNumber)
   mycolors <- colorRampPalette(brewer.pal(min(nb.cols, 12), "Paired"))(nb.cols)
@@ -520,6 +709,28 @@ generate_plots <- function(TN.combined) {
 
   safe_save_pdf(proportion_plot, file.path(output_dirs$plots, "proportion_plot.pdf"))
 
+  # Sample proportion plot - clusters within each sample (using ident2)
+  # Calculate proportion of each cluster within each sample
+  Sampleproportion <- table(Idents(TN.combined), TN.combined$orig.ident2)
+  Sampleproportion <- round(sweep(Sampleproportion, MARGIN = 2, STATS = colSums(Sampleproportion), FUN = "/") * 100, 2)
+  write.csv(Sampleproportion, file = file.path(output_dirs$tables, "Sampleproportion.csv"), row.names = TRUE)
+
+  # Create dataframe for plotting
+  Sampleproportion_df <- as.data.frame(Sampleproportion)
+  colnames(Sampleproportion_df) <- c("Cluster", "Sample", "Freq")
+
+  # Generate colors for clusters (same as main proportion plot)
+  sample_proportion_plot <- ggplot(Sampleproportion_df, aes(x = Sample, y = Freq, fill = Cluster)) +
+    theme_bw(base_size = 15) +
+    geom_col(position = "fill", width = 0.6) +
+    xlab("Sample") +
+    ylab("Proportion") +
+    theme(legend.title = element_blank(),
+          legend.text = element_text(size = 12)) +
+    scale_fill_manual(values = mycolors)
+
+  safe_save_pdf(sample_proportion_plot, file.path(output_dirs$plots, "sample_proportion_plot.pdf"))
+
   message("==================== Plots completed! ====================\n")
 }
 
@@ -527,10 +738,10 @@ run_and_plot_pca <- function(seurat_object, output_plots_dir) {
   Sys.time()
   message("Generating sample similarity plot using pseudo-bulk PCA...")
 
-  # Create "pseudo-bulk" profiles by averaging expression for each sample
+  # Create "pseudo-bulk" profiles by averaging expression for each sample (using orig.ident2)
   avg_expr <- AverageExpression(
     seurat_object,
-    group.by = "orig.ident",
+    group.by = "orig.ident2",
     assays = "RNA",
     layer = "data"
   )
@@ -576,7 +787,37 @@ execute_step <- function(step) {
     },
     process = {
       samples_df <- readRDS(file.path(output_base, "samples_df.rds"))
-      message("\nProcessing ", nrow(samples_df), " samples sequentially...")
+      message("\n==================== Checking Sample Processing Status ====================")
+
+      # Check which samples already have processed RDS files
+      existing_samples <- character()
+      new_samples <- character()
+
+      for (i in 1:nrow(samples_df)) {
+        sample_name <- samples_df$sample_names[i]
+        output_rds <- file.path(output_dirs$processed, paste0(sample_name, "_processed.rds"))
+
+        if (file.exists(output_rds)) {
+          existing_samples <- c(existing_samples, sample_name)
+        } else {
+          new_samples <- c(new_samples, sample_name)
+        }
+      }
+
+      if (length(existing_samples) > 0) {
+        message("Found ", length(existing_samples), " already processed samples:")
+        message("  ", paste(existing_samples, collapse=", "))
+      }
+
+      if (length(new_samples) > 0) {
+        message("Will process ", length(new_samples), " new samples:")
+        message("  ", paste(new_samples, collapse=", "))
+      } else {
+        message("All samples already processed! Skipping processing step.")
+        return(invisible(NULL))
+      }
+
+      message("\n==================== Starting Sample Processing ====================")
 
       # Process samples sequentially using lapply
       results <- lapply(1:nrow(samples_df), function(i) {
@@ -599,12 +840,24 @@ execute_step <- function(step) {
       invisible(results)
     },
     integrate = {
+      # Check if integrated object already exists
+      integrated_rds <- file.path(output_base, "TN.combined_dim30.rds")
+
+      if (file.exists(integrated_rds)) {
+        message("Loading existing integrated object from: ", integrated_rds)
+        TN_combined <- readRDS(integrated_rds)
+        message("Integrated object loaded successfully with ", ncol(TN_combined), " cells")
+        return(TN_combined)
+      }
+
+      # If not, proceed with integration
       sample_files <- list.files(output_dirs$processed,
                                pattern = "_processed.rds$",
                                full.names = TRUE)
 
       if (length(sample_files) == 0) stop("No processed sample files found in ", output_dirs$processed)
 
+      message("Found ", length(sample_files), " processed samples for integration")
       sample_list <- lapply(sample_files, readRDS)
       integrate_samples(sample_list)
     },

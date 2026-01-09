@@ -1,0 +1,152 @@
+========================================
+CHROMOSOME NAMING FIX - READY TO RUN
+========================================
+
+Date: December 25, 2025
+Status: BWA indexing in progress (~30-60 minutes remaining)
+
+========================================
+PROBLEM FIXED
+========================================
+
+✓ Chromosome naming mismatch identified
+✓ UCSC hg19 reference prepared (chr1, chr2, chr3 naming)
+✓ Samtools index created
+✓ GATK dictionary created
+⏳ BWA index in progress (will complete automatically)
+✓ All pipeline scripts created and ready
+
+========================================
+WHAT'S HAPPENING NOW
+========================================
+
+BWA is currently indexing the UCSC hg19 reference genome.
+This process takes ~1-2 hours and is running in the background.
+
+Progress: Processing ~1.6 billion base pairs (out of ~6.3 billion)
+Estimated completion: ~30-60 minutes
+
+========================================
+NEXT STEPS - OPTION 1 (AUTOMATED)
+========================================
+
+When BWA indexing completes, run this command:
+
+    bash /home/johan/pipeline/varcall/run_complete_pipeline_ucsc.sh
+
+This will automatically:
+1. Verify BWA index is complete
+2. Re-align all three samples (proband, mother, father)
+3. Mark duplicates
+4. Run BQSR
+5. Call variants
+6. Detect de novo mutations
+7. Generate summary reports
+
+Total time: ~9-13 hours
+
+========================================
+NEXT STEPS - OPTION 2 (STEP-BY-STEP)
+========================================
+
+1. Check if BWA indexing is complete:
+   bash /home/johan/pipeline/varcall/check_bwa_index_progress.sh
+
+2. When complete, run re-alignment:
+   bash /home/johan/pipeline/varcall/realign_with_ucsc_hg19.sh
+
+3. Then run variant calling:
+   bash /home/johan/pipeline/varcall/varcall_trio_ucsc.sh
+
+========================================
+INPUT DATA (READY)
+========================================
+
+FASTQ files (paired-end):
+✓ /home/johan/output/autism/proband_1.fastq.gz (1.9G)
+✓ /home/johan/output/autism/proband_2.fastq.gz (1.9G)
+✓ /home/johan/output/autism/mother_1.fastq.gz (1.5G)
+✓ /home/johan/output/autism/mother_2.fastq.gz (1.5G)
+✓ /home/johan/output/autism/father_1.fastq.gz (2.0G)
+✓ /home/johan/output/autism/father_2.fastq.gz (1.9G)
+
+Reference genome:
+✓ /home/johan/johan/johan/johan/reference/human/hg19_ucsc.fa (3.0G)
+✓ /home/johan/johan/johan/johan/reference/human/hg19_ucsc.fa.fai
+✓ /home/johan/johan/johan/johan/reference/human/hg19_ucsc.dict
+⏳ /home/johan/johan/johan/johan/reference/human/hg19_ucsc.fa.bwt (in progress)
+
+Known sites VCFs (with chr naming):
+✓ /home/johan/johan/johan/johan/reference/human/dbsnp_138.hg19.vcf.gz
+✓ /home/johan/johan/johan/reference/human/Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz
+
+========================================
+EXPECTED OUTPUTS
+========================================
+
+After pipeline completion, you'll have:
+
+Final BAM files:
+- /home/johan/output/autism/proband_final_ucsc.bam
+- /home/johan/output/autism/mother_final_ucsc.bam
+- /home/johan/output/autism/father_final_ucsc.bam
+
+Variant calls:
+- /home/johan/output/autism/variants/trio_cohort.vcf.gz
+- /home/johan/output/autism/variants/trio_filtered.vcf.gz
+- /home/johan/output/autism/variants/denovo_high_confidence.vcf.gz
+- /home/johan/output/autism/variants/denovo_variants_table.tsv
+- /home/johan/output/autism/variants/denovo_analysis_report.txt
+
+========================================
+PIPELINE TIMELINE
+========================================
+
+Current:     BWA indexing (1-2 hours) ⏳
+Next:        Re-alignment (4-5 hours)
+Then:        Duplicate marking (1 hour)
+Then:        BQSR (1-2 hours)
+Then:        Variant calling (2-3 hours)
+Finally:     De novo detection (<1 hour)
+
+Total remaining: ~9-13 hours
+
+========================================
+MONITORING PROGRESS
+========================================
+
+Check BWA index status:
+    bash /home/johan/pipeline/varcall/check_bwa_index_progress.sh
+
+Monitor pipeline execution:
+    tail -f /tmp/claude/-home-johan/tasks/*.output
+
+View current processes:
+    ps aux | grep -E 'bwa|gatk|samtools'
+
+========================================
+DOCUMENTATION
+========================================
+
+Detailed fix explanation:
+    /home/johan/pipeline/varcall/CHROMOSOME_NAMING_FIX.md
+
+Pipeline scripts:
+    /home/johan/pipeline/varcall/realign_with_ucsc_hg19.sh
+    /home/johan/pipeline/varcall/varcall_trio_ucsc.sh
+    /home/johan/pipeline/varcall/run_complete_pipeline_ucsc.sh
+
+========================================
+READY!
+========================================
+
+The fix is complete and the pipeline is ready to run.
+BWA indexing will finish automatically in ~30-60 minutes.
+
+Once indexing is complete, simply run:
+
+    bash /home/johan/pipeline/varcall/run_complete_pipeline_ucsc.sh
+
+And the entire pipeline will execute automatically!
+
+========================================

@@ -41,67 +41,32 @@ mkdir -p "${OUTPUT_DIR}"
 cd "${OUTPUT_DIR}"
 
 ###############################################################################
-# STEP 1: Download SRA files (if not already downloaded)
+# STEP 1-2: Verify FASTQ files (downloaded from ENA)
 ###############################################################################
 
-echo "=== STEP 1: Downloading SRA files ==="
-for SRA in ${PROBAND} ${MOTHER} ${FATHER}; do
-    if [ ! -f "${OUTPUT_DIR}/${SRA}/${SRA}.sra" ]; then
-        echo "Downloading ${SRA}..."
-        prefetch ${SRA} -O "${OUTPUT_DIR}"
+echo "=== STEP 1-2: Verifying FASTQ files ==="
+
+# Check if FASTQ files exist (should be downloaded from ENA already)
+ALL_FASTQ_EXIST=true
+for LABEL in proband mother father; do
+    if [ -f "${OUTPUT_DIR}/${LABEL}_1.fastq.gz" ] && [ -f "${OUTPUT_DIR}/${LABEL}_2.fastq.gz" ]; then
+        echo "✓ ${LABEL} FASTQ files exist"
     else
-        echo "✓ ${SRA}.sra already downloaded"
+        echo "⚠ ${LABEL} FASTQ files missing"
+        ALL_FASTQ_EXIST=false
     fi
 done
 
-###############################################################################
-# STEP 2: Convert to FASTQ (parallel with max threads)
-###############################################################################
+if [ "${ALL_FASTQ_EXIST}" = false ]; then
+    echo ""
+    echo "ERROR: FASTQ files not found!"
+    echo "Please download FASTQ files first:"
+    echo "  bash /home/johan/pipeline/varcall/convert_sra_fixed.sh"
+    exit 1
+fi
 
 echo ""
-echo "=== STEP 2: Converting to FASTQ (parallel) ==="
-
-convert_to_fastq() {
-    local SRA=$1
-    local LABEL=$2
-    local SRA_FILE="${OUTPUT_DIR}/${SRA}/${SRA}.sra"
-
-    # Check if FASTQ already exists
-    if [ -f "${OUTPUT_DIR}/${LABEL}_1.fastq.gz" ]; then
-        echo "✓ ${LABEL} FASTQ already exists, skipping"
-        return 0
-    fi
-
-    echo "Converting ${SRA} to FASTQ (${LABEL})..."
-
-    # Use fasterq-dump with multi-threading
-    fasterq-dump \
-        --split-files \
-        --threads ${THREADS} \
-        --progress \
-        --outdir "${OUTPUT_DIR}" \
-        "${SRA_FILE}"
-
-    # Rename immediately
-    mv "${OUTPUT_DIR}/${SRA}_1.fastq" "${OUTPUT_DIR}/${LABEL}_1.fastq"
-    mv "${OUTPUT_DIR}/${SRA}_2.fastq" "${OUTPUT_DIR}/${LABEL}_2.fastq"
-
-    # Compress with pigz (parallel gzip) for speed
-    echo "Compressing ${LABEL} with pigz..."
-    pigz -p ${THREADS} "${OUTPUT_DIR}/${LABEL}_1.fastq" &
-    pigz -p ${THREADS} "${OUTPUT_DIR}/${LABEL}_2.fastq" &
-    wait
-
-    echo "✓ ${LABEL} complete"
-}
-
-# Convert all three samples
-convert_to_fastq "${PROBAND}" "proband"
-convert_to_fastq "${MOTHER}" "mother"
-convert_to_fastq "${FATHER}" "father"
-
-echo ""
-echo "=== FASTQ files created ==="
+echo "=== FASTQ files ready ==="
 ls -lh "${OUTPUT_DIR}"/*.fastq.gz
 
 ###############################################################################

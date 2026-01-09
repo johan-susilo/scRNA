@@ -1,0 +1,132 @@
+========================================
+✓ PIPELINE READY TO RUN
+========================================
+
+Date: December 26, 2025
+Status: ALL PREPARATIONS COMPLETE
+
+========================================
+✓ VERIFICATION COMPLETE
+========================================
+
+Reference Files (UCSC hg19):
+✓ hg19_ucsc.fa (3.0G) - Chromosome naming: chr1, chr2, chr3...
+✓ hg19_ucsc.fa.fai (Samtools index)
+✓ hg19_ucsc.dict (GATK dictionary)
+✓ hg19_ucsc.fa.bwt (BWA BWT index - 3.0G)
+✓ hg19_ucsc.fa.pac (BWA packed index - 748M)
+✓ hg19_ucsc.fa.sa (BWA suffix array - 1.5G)
+✓ hg19_ucsc.fa.amb (BWA ambiguity)
+✓ hg19_ucsc.fa.ann (BWA annotation)
+
+Known Sites VCFs:
+✓ dbsnp_138.hg19.vcf.gz - Chromosome naming: chr1, chr2, chr3...
+✓ Mills_and_1000G_gold_standard.indels.hg19.sites.vcf.gz - Chromosome naming: chr1, chr2, chr3...
+
+Input FASTQ Files:
+✓ /home/johan/output/autism/proband_1.fastq.gz (1.9G)
+✓ /home/johan/output/autism/proband_2.fastq.gz (1.9G)
+✓ /home/johan/output/autism/mother_1.fastq.gz (1.5G)
+✓ /home/johan/output/autism/mother_2.fastq.gz (1.5G)
+✓ /home/johan/output/autism/father_1.fastq.gz (2.0G)
+✓ /home/johan/output/autism/father_2.fastq.gz (1.9G)
+
+Pipeline Scripts:
+✓ realign_with_ucsc_hg19.sh (executable)
+✓ varcall_trio_ucsc.sh (executable)
+✓ run_complete_pipeline_ucsc.sh (master script - executable)
+
+========================================
+✓ CHROMOSOME NAMING VERIFIED
+========================================
+
+All files use CONSISTENT UCSC naming (chr1, chr2, chr3...):
+- Reference: chr1 ✓
+- dbSNP VCF: chr1 ✓
+- Mills VCF: chr1 ✓
+
+The previous mismatch (NC_* naming) has been FIXED!
+
+========================================
+RUN THE PIPELINE NOW
+========================================
+
+Execute this single command:
+
+    bash /home/johan/pipeline/varcall/run_complete_pipeline_ucsc.sh
+
+This will automatically:
+1. Re-align all trio samples (proband, mother, father)
+2. Mark duplicates
+3. Apply BQSR (Base Quality Score Recalibration)
+4. Call variants with GATK HaplotypeCaller
+5. Perform joint genotyping
+6. Filter variants
+7. Detect de novo mutations
+8. Generate analysis reports
+
+========================================
+EXPECTED TIMELINE
+========================================
+
+Total estimated time: ~9-13 hours
+
+Breakdown:
+- Re-alignment (BWA-MEM, 3 samples): ~4-5 hours
+- Mark duplicates: ~1 hour
+- BQSR: ~1-2 hours
+- Variant calling (HaplotypeCaller): ~2-3 hours
+- Joint genotyping & filtering: ~1 hour
+- De novo detection: <1 hour
+
+========================================
+MONITORING PROGRESS
+========================================
+
+Watch pipeline execution:
+    tail -f /home/johan/output/autism/*.log
+
+Check for running processes:
+    ps aux | grep -E 'bwa|gatk|samtools' | grep -v grep
+
+Monitor CPU/memory usage:
+    htop
+
+========================================
+EXPECTED OUTPUT FILES
+========================================
+
+Final BAM files (analysis-ready):
+- /home/johan/output/autism/proband_final_ucsc.bam
+- /home/johan/output/autism/mother_final_ucsc.bam
+- /home/johan/output/autism/father_final_ucsc.bam
+
+Variant calls:
+- /home/johan/output/autism/variants/trio_cohort.vcf.gz (all variants)
+- /home/johan/output/autism/variants/trio_filtered.vcf.gz (quality filtered)
+- /home/johan/output/autism/variants/denovo_high_confidence.vcf.gz (de novo variants)
+- /home/johan/output/autism/variants/denovo_variants_table.tsv (table format)
+- /home/johan/output/autism/variants/denovo_analysis_report.txt (summary report)
+
+========================================
+TROUBLESHOOTING
+========================================
+
+If the pipeline fails:
+1. Check logs in /home/johan/output/autism/
+2. Verify conda environment: conda activate varcall
+3. Check disk space: df -h
+4. Review error messages in the terminal
+
+========================================
+READY TO START!
+========================================
+
+Everything is prepared and verified.
+The chromosome naming mismatch has been fixed.
+All reference files are indexed and ready.
+
+Run the command above to start the complete autism trio
+variant calling and de novo mutation detection pipeline!
+
+========================================

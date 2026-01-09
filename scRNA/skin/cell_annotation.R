@@ -27,9 +27,11 @@ option_list <- list(
   make_option(c("-r", "--rds"), type = "character", default = NULL,
               help = "Path to RDS file (TN.combined_dim30.rds)"),
   make_option(c("-s", "--step"), type = "character", default = "all",
-              help = "Pipeline step: read_rds, singleR, markers, celliD, scCATCH, consensus, all"),
+              help = "Pipeline step: read_rds, singleR, markers, celliD, scCATCH, consensus, annotated_plots, combined_plots, all"),
   make_option(c("-o", "--output"), type = "character", default = "annotations",
               help = "Base output directory [default: annotations]"),
+  make_option(c("-p", "--plots"), type = "character", default = NULL,
+              help = "Path to plots directory (for annotated_plots step)"),
   make_option(c("--consensus"), action = "store_true", default = FALSE,
               help = "Generate consensus annotations from all methods"),
   make_option(c("--tissue"), type = "character", default = "skin",
@@ -49,7 +51,9 @@ output_dirs <- list(
   celliD = file.path(output_base, "celliD"),
   scCATCH = file.path(output_base, "scCATCH"),
   consensus = file.path(output_base, "consensus"),
-  logs = file.path(output_base, "logs")
+  logs = file.path(output_base, "logs"),
+  annotated_plots = if (!is.null(opt$plots)) file.path(opt$plots, "annotated") else file.path(output_base, "annotated_plots"),
+  combined_plots = if (!is.null(opt$plots)) file.path(opt$plots, "combined_plots") else file.path(output_base, "combined_plots")
 )
 lapply(output_dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 
@@ -552,6 +556,252 @@ generate_consensus_annotation <- function() {
 }
 #-------------------------------------------Consensus Annotation end-----------------------------------------------
 
+#-------------------------------------------Generate Annotated Plots-----------------------------------------------
+generate_annotated_plots <- function(TN.combined) {
+  message("\n============================================================")
+  message("Generating Annotated Plots")
+  message("============================================================")
+
+  # Read consensus annotations
+  consensus_file <- file.path(output_dirs$consensus, "consensus_annotation.tsv")
+  if (!file.exists(consensus_file)) {
+    stop("Consensus annotation file not found: ", consensus_file,
+         "\nPlease run 'consensus' step first")
+  }
+
+  message("Reading consensus annotations from: ", consensus_file)
+  consensus_data <- read.delim(consensus_file, header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+
+  # Create cluster naming in format: C0_CellType, C1_CellType, etc.
+  message("\nCreating cluster names in format: C#_CellType")
+
+  # Create mapping from cluster numbers to C#_CellType format
+  new.cluster.ids <- paste0("C", consensus_data$Cluster, "_", consensus_data$Cell_Type)
+  names(new.cluster.ids) <- levels(TN.combined)
+
+  # Display the mapping
+  message("\nCluster naming:")
+  for (i in seq_along(new.cluster.ids)) {
+    message("  ", names(new.cluster.ids)[i], " -> ", new.cluster.ids[i])
+  }
+
+  # Rename identities
+  TNname.combined <- RenameIdents(TN.combined, new.cluster.ids)
+
+  # Define colors for unique cell types
+  n_clusters <- length(unique(Idents(TNname.combined)))
+  cluster_colors <- colorRampPalette(RColorBrewer::brewer.pal(12, "Set3"))(n_clusters)
+
+  # UMAP with cluster labels (C#_CellType format)
+  safe_save_pdf(
+    DimPlot(TNname.combined, reduction = "umap", label = TRUE, label.size = 4,
+            repel = TRUE, pt.size = 0.8) +
+      NoLegend() +
+      ggtitle("UMAP - Annotated Clusters"),
+    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_labelT.pdf")
+  )
+
+  # UMAP with legend
+  safe_save_pdf(
+    DimPlot(TNname.combined, reduction = "umap", label = FALSE, pt.size = 0.8) +
+      scale_color_manual(values = cluster_colors) +
+      ggtitle("UMAP - Annotated Clusters (with legend)"),
+    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_labelF.pdf")
+  )
+
+  # UMAP split by condition
+  safe_save_pdf(
+    DimPlot(TNname.combined, reduction = "umap", split.by = "orig.ident1",
+            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
+      NoLegend() +
+      ggtitle("UMAP - Annotated Clusters (split by condition)"),
+    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_splitorigident1.pdf")
+  )
+
+  # UMAP split by sample
+  safe_save_pdf(
+    DimPlot(TNname.combined, reduction = "umap", split.by = "orig.ident2",
+            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
+      NoLegend() +
+      ggtitle("UMAP - Annotated Clusters (split by sample)"),
+    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_splitorigident2.pdf")
+  )
+
+  # Proportion plots with annotated cluster names
+  message("Generating annotated cluster proportion plots...")
+
+  # Proportion by sample group
+  annotated_proportion_ident1 <- table(Idents(TNname.combined), TNname.combined$orig.ident1)
+  annotated_proportion_ident1 <- round(sweep(annotated_proportion_ident1, MARGIN = 2,
+                                              STATS = colSums(annotated_proportion_ident1), FUN = "/") * 100, 2)
+  write.csv(annotated_proportion_ident1,
+            file = file.path(output_dirs$annotated_plots, "annotated_proportion_by_group.csv"),
+            row.names = TRUE)
+
+  annotated_proportion_ident1_df <- as.data.frame(annotated_proportion_ident1)
+  colnames(annotated_proportion_ident1_df) <- c("Cluster", "Group", "Freq")
+
+  annotated_proportion_ident1_plot <- ggplot(annotated_proportion_ident1_df,
+                                              aes(x = Group, y = Freq, fill = Cluster)) +
+    theme_bw(base_size = 15) +
+    geom_col(position = "fill", width = 0.6) +
+    xlab("Sample Group") +
+    ylab("Proportion") +
+    labs(fill = "Cluster") +
+    theme(legend.text = element_text(size = 8)) +
+    scale_fill_manual(values = cluster_colors) +
+    ggtitle("Annotated Cluster Proportion by Sample Group")
+
+  safe_save_pdf(annotated_proportion_ident1_plot,
+                file.path(output_dirs$annotated_plots, "annotated_proportion_by_group.pdf"))
+
+  # Proportion by individual sample
+  annotated_proportion_ident2 <- table(Idents(TNname.combined), TNname.combined$orig.ident2)
+  annotated_proportion_ident2 <- round(sweep(annotated_proportion_ident2, MARGIN = 2,
+                                              STATS = colSums(annotated_proportion_ident2), FUN = "/") * 100, 2)
+  write.csv(annotated_proportion_ident2,
+            file = file.path(output_dirs$annotated_plots, "annotated_proportion_by_sample.csv"),
+            row.names = TRUE)
+
+  annotated_proportion_ident2_df <- as.data.frame(annotated_proportion_ident2)
+  colnames(annotated_proportion_ident2_df) <- c("Cluster", "Sample", "Freq")
+
+  annotated_proportion_ident2_plot <- ggplot(annotated_proportion_ident2_df,
+                                              aes(x = Sample, y = Freq, fill = Cluster)) +
+    theme_bw(base_size = 15) +
+    geom_col(position = "fill", width = 0.6) +
+    xlab("Sample") +
+    ylab("Proportion") +
+    labs(fill = "Cluster") +
+    theme(legend.text = element_text(size = 8),
+          axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = cluster_colors) +
+    ggtitle("Annotated Cluster Proportion by Sample")
+
+  safe_save_pdf(annotated_proportion_ident2_plot,
+                file.path(output_dirs$annotated_plots, "annotated_proportion_by_sample.pdf"))
+
+  # Save annotated Seurat object
+  annotated_rds <- file.path(output_dirs$annotated_plots, "TN.combined_annotated.rds")
+  message("Saving annotated Seurat object to: ", annotated_rds)
+  saveRDS(TNname.combined, annotated_rds)
+
+  message("Annotated plots generation completed!")
+  message("Plots saved to: ", output_dirs$annotated_plots)
+  message("============================================================\n")
+
+  return(TNname.combined)
+}
+#-------------------------------------------Generate Annotated Plots end-------------------------------------------
+
+#-------------------------------------------Generate Combined Plots (Cluster Numbers Only)--------------------
+generate_combined_plots <- function(TN.combined) {
+  message("\n============================================================")
+  message("Generating Combined Plots (Cluster Numbers Only)")
+  message("============================================================")
+
+  # Define colors for 18 clusters (0-17)
+  cluster_colors <- colorRampPalette(RColorBrewer::brewer.pal(12, "Set3"))(18)
+
+  # UMAP plots with cluster numbers
+  message("Generating UMAP plots with cluster numbers...")
+
+  # UMAP with cluster labels
+  safe_save_pdf(
+    DimPlot(TN.combined, reduction = "umap", label = TRUE, label.size = 5,
+            repel = TRUE, pt.size = 0.8) +
+      NoLegend() +
+      ggtitle("UMAP - Cluster Numbers"),
+    file.path(output_dirs$combined_plots, "TNcombined_umap_clusters_labelT.pdf")
+  )
+
+  # UMAP with legend
+  safe_save_pdf(
+    DimPlot(TN.combined, reduction = "umap", label = FALSE, pt.size = 0.8) +
+      ggtitle("UMAP - Cluster Numbers (with legend)"),
+    file.path(output_dirs$combined_plots, "TNcombined_umap_clusters_labelF.pdf")
+  )
+
+  # UMAP split by condition (orig.ident1)
+  safe_save_pdf(
+    DimPlot(TN.combined, reduction = "umap", split.by = "orig.ident1",
+            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
+      NoLegend() +
+      ggtitle("UMAP - Cluster Numbers (split by condition)"),
+    file.path(output_dirs$combined_plots, "TNcombined_umap_clusters_splitorigident1.pdf")
+  )
+
+  # UMAP split by sample (orig.ident2)
+  safe_save_pdf(
+    DimPlot(TN.combined, reduction = "umap", split.by = "orig.ident2",
+            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
+      NoLegend() +
+      ggtitle("UMAP - Cluster Numbers (split by sample)"),
+    file.path(output_dirs$combined_plots, "TNcombined_umap_clusters_splitorigident2.pdf")
+  )
+
+  # Cluster proportion plots
+  message("Generating cluster proportion plots...")
+
+  # Cluster proportion by sample group (ident1)
+  Cluster_proportion_ident1 <- table(Idents(TN.combined), TN.combined$orig.ident1)
+  Cluster_proportion_ident1 <- round(sweep(Cluster_proportion_ident1, MARGIN = 2,
+                                            STATS = colSums(Cluster_proportion_ident1), FUN = "/") * 100, 2)
+  write.csv(Cluster_proportion_ident1,
+            file = file.path(output_dirs$combined_plots, "cluster_proportion_by_group.csv"),
+            row.names = TRUE)
+
+  Cluster_proportion_ident1_df <- as.data.frame(Cluster_proportion_ident1)
+  colnames(Cluster_proportion_ident1_df) <- c("Cluster", "Group", "Freq")
+
+  cluster_proportion_ident1_plot <- ggplot(Cluster_proportion_ident1_df,
+                                           aes(x = Group, y = Freq, fill = Cluster)) +
+    theme_bw(base_size = 15) +
+    geom_col(position = "fill", width = 0.6) +
+    xlab("Sample Group") +
+    ylab("Proportion") +
+    labs(fill = "Cluster") +
+    theme(legend.text = element_text(size = 10)) +
+    scale_fill_manual(values = cluster_colors) +
+    ggtitle("Cluster Proportion by Sample Group")
+
+  safe_save_pdf(cluster_proportion_ident1_plot,
+                file.path(output_dirs$combined_plots, "cluster_proportion_by_group.pdf"))
+
+  # Cluster proportion by individual sample (ident2)
+  Cluster_proportion_ident2 <- table(Idents(TN.combined), TN.combined$orig.ident2)
+  Cluster_proportion_ident2 <- round(sweep(Cluster_proportion_ident2, MARGIN = 2,
+                                            STATS = colSums(Cluster_proportion_ident2), FUN = "/") * 100, 2)
+  write.csv(Cluster_proportion_ident2,
+            file = file.path(output_dirs$combined_plots, "cluster_proportion_by_sample.csv"),
+            row.names = TRUE)
+
+  Cluster_proportion_ident2_df <- as.data.frame(Cluster_proportion_ident2)
+  colnames(Cluster_proportion_ident2_df) <- c("Cluster", "Sample", "Freq")
+
+  cluster_proportion_ident2_plot <- ggplot(Cluster_proportion_ident2_df,
+                                           aes(x = Sample, y = Freq, fill = Cluster)) +
+    theme_bw(base_size = 15) +
+    geom_col(position = "fill", width = 0.6) +
+    xlab("Sample") +
+    ylab("Proportion") +
+    labs(fill = "Cluster") +
+    theme(legend.text = element_text(size = 10),
+          axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = cluster_colors) +
+    ggtitle("Cluster Proportion by Sample")
+
+  safe_save_pdf(cluster_proportion_ident2_plot,
+                file.path(output_dirs$combined_plots, "cluster_proportion_by_sample.pdf"))
+
+  message("Combined plots (cluster numbers only) generation completed!")
+  message("Plots saved to: ", output_dirs$combined_plots)
+  message("============================================================\n")
+
+  return(TN.combined)
+}
+#-------------------------------------------Generate Combined Plots end-------------------------------------------
+
 
 # Global object for sharing between steps
 seurat_objects <- NULL
@@ -615,6 +865,30 @@ execute_step <- function(step) {
          consensus = {
            generate_consensus_annotation()
          },
+         annotated_plots = {
+           if (is.null(seurat_objects)) {
+             if (file.exists(file.path(output_base, "seurat_objects.rds"))) {
+               seurat_objects <<- readRDS(file.path(output_base, "seurat_objects.rds"))
+             } else {
+               if (is.null(opt$rds)) stop("RDS file path must be specified with --rds")
+               seurat_objects <<- read_rds(opt$rds)
+               saveRDS(seurat_objects, file.path(output_base, "seurat_objects.rds"))
+             }
+           }
+           generate_annotated_plots(seurat_objects$TN.combined)
+         },
+         combined_plots = {
+           if (is.null(seurat_objects)) {
+             if (file.exists(file.path(output_base, "seurat_objects.rds"))) {
+               seurat_objects <<- readRDS(file.path(output_base, "seurat_objects.rds"))
+             } else {
+               if (is.null(opt$rds)) stop("RDS file path must be specified with --rds")
+               seurat_objects <<- read_rds(opt$rds)
+               saveRDS(seurat_objects, file.path(output_base, "seurat_objects.rds"))
+             }
+           }
+           generate_combined_plots(seurat_objects$TN.combined)
+         },
          all = {
            if (is.null(opt$rds)) stop("RDS file path must be specified with --rds")
            seurat_objects <<- read_rds(opt$rds)
@@ -627,7 +901,7 @@ execute_step <- function(step) {
              generate_consensus_annotation()
            }
          },
-         stop("Invalid step. Valid options: read_rds, singleR, markers, celliD, scCATCH, consensus, all")
+         stop("Invalid step. Valid options: read_rds, singleR, markers, celliD, scCATCH, consensus, annotated_plots, combined_plots, all")
   )
 }
 
