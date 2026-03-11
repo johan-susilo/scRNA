@@ -1,10 +1,18 @@
 #!/usr/bin/env Rscript
-# Usage: Rscript ./preprocessing.R -f input.csv -d /home/johan/data/PMH_scRNA-seq -s all
-# Example: Rscript ./preprocessing.R -f input.csv -d /path/to/data -s read_csv
-# Example: Rscript ./preprocessing.R -f input.csv -d /path/to/data -s process -c 4
-# Example: Rscript ./preprocessing.R -f input.csv -d . -s integrate
-# Example: Rscript ./preprocessing.R -f input.csv -d /home/johan/data/PMH_scRNA-seq -s plot
-# Example: Rscript ./preprocessing.R -f input.csv -d /home/johan/data/PMH_scRNA-seq -s all -o /home/johan/output/skin_pmh -c 8
+# Usage: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input.csv -d /home/johan/data/PMH_scRNA-seq -s all -o /home/johan/output/skin_pmh/
+
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f input.csv -d /path/to/data -s read_csv
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f input.csv -d /path/to/data -s process -c 4
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f input.csv -d . -s integrate
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f input.csv -d /home/johan/data/PMH_scRNA-seq -s plot
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input.csv -d /home/johan/data/PMH_scRNA-seq -s all -o /home/johan/output/skin_pmh -c 8
+# Example: Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+K -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+K
+# Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task2.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+SS -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+SS
+# Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task3.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+PMH -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+PMH
+# Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task4.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+HS -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+HS
+#Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task5.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+DFonly1 -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+DFonly1
+
+
 
 Sys.time()
 suppressPackageStartupMessages({
@@ -656,78 +664,134 @@ generate_plots <- function(TN.combined) {
   Sys.time()
   message("\n==================== Generating Plots ====================")
 
-  # UMAP plots
-  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = FALSE, pt.size = 0.8, cols = mycolor),
+  # --- 1. Attempt to Apply Annotations ---
+  # Look for the consensus file in the standard location relative to output_base
+  consensus_file <- file.path(output_base, "annotations","consensus", "consensus_annotation.tsv")
+  
+  # If output_base was customized in opt, check there too
+  if (!file.exists(consensus_file) && !is.null(opt$output)) {
+     consensus_file <- file.path(opt$output, "annotations", "consensus", "consensus_annotation.tsv")
+  }
+
+  TN.plotting <- TN.combined
+  is_annotated <- FALSE
+
+  if (file.exists(consensus_file)) {
+    message("Found consensus annotation file. Applying labels...")
+    consensus_data <- read.delim(consensus_file, sep = "\t", stringsAsFactors = FALSE)
+    
+    # Ensure Cluster format matches (remove X)
+    consensus_data$Cluster <- as.character(gsub("^X", "", consensus_data$Cluster))
+    
+    current_ids <- levels(TN.combined)
+    new_names <- character(length(current_ids))
+    names(new_names) <- current_ids
+    
+    for (id in current_ids) {
+      clean_id <- as.character(gsub("^X", "", id))
+      match_row <- consensus_data[consensus_data$Cluster == clean_id, ]
+      
+      if (nrow(match_row) > 0) {
+        # Format: "0: Cell Type" (Preserves unique colors for all 20 clusters)
+        new_names[id] <- paste0(clean_id, ": ", match_row$Cell_Type[1])
+      } else {
+        new_names[id] <- paste0(clean_id, ": Unknown")
+      }
+    }
+    
+    TN.plotting <- RenameIdents(TN.combined, new_names)
+    is_annotated <- TRUE
+  } else {
+    message("Consensus file not found. Using numeric cluster labels.")
+  }
+
+  # Define colors 
+  # If annotated, we might have more than 30 levels if something went wrong, 
+  # but usually it's the same count. Safe color generation:
+  n_groups <- length(levels(TN.plotting))
+  if (n_groups <= length(mycolor)) {
+    plot_colors <- mycolor[1:n_groups]
+  } else {
+    plot_colors <- colorRampPalette(mycolor)(n_groups)
+  }
+
+  # --- 2. UMAP Plots ---
+  # Note: label.size set to 3 to accommodate longer text labels
+  
+  safe_save_pdf(DimPlot(TN.plotting, reduction = "umap", label = FALSE, pt.size = 0.8, cols = plot_colors),
                 file.path(output_dirs$plots, "TNcombined_umap_labelF.pdf"))
 
-  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, pt.size = 0.8, cols = mycolor),
+  safe_save_pdf(DimPlot(TN.plotting, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.8, cols = plot_colors),
                 file.path(output_dirs$plots, "TNcombined_umap_labelT.pdf"))
 
-  safe_save_pdf(DimPlot(TN.combined, group.by = "orig.ident2", pt.size = 0.8, cols = mycolor),
+  safe_save_pdf(DimPlot(TN.plotting, group.by = "orig.ident2", pt.size = 0.8, cols = plot_colors),
                 file.path(output_dirs$plots, "TNcombined_umap_groupbyorigident.pdf"))
 
-  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident1",
-                        pt.size = 0.8, ncol = 2, cols = mycolor),
+  # Split by Condition (ident1) - Matches your uploaded image
+  safe_save_pdf(DimPlot(TN.plotting, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, split.by = "orig.ident1",
+                        pt.size = 0.8, ncol = 2, cols = plot_colors),
                 file.path(output_dirs$plots, "TNcombined_umap_labelT_splitorigident1.pdf"))
 
-  safe_save_pdf(DimPlot(TN.combined, reduction = "umap", label = TRUE, split.by = "orig.ident2",
-                        pt.size = 0.8, ncol = 2, cols = mycolor),
+  # Split by Sample (ident2)
+  safe_save_pdf(DimPlot(TN.plotting, reduction = "umap", label = TRUE, label.size = 3, repel = TRUE, split.by = "orig.ident2",
+                        pt.size = 0.8, ncol = 2, cols = plot_colors),
                 file.path(output_dirs$plots, "TNcombined_umap_labelT_splitsample.pdf"))
 
-  # Heatmap generation
-  CellNumber <- table(Idents(TN.combined), TN.combined$orig.ident1)
+  # --- 3. Heatmap ---
+  # Using numeric clusters for Heatmap is usually cleaner for calculation, 
+  # but we use the plotting object to match the UMAP labels.
+  CellNumber <- table(Idents(TN.plotting), TN.plotting$orig.ident1)
   cluster_count <- nrow(CellNumber)
 
-  message("Finding all markers for ", cluster_count, " clusters...")
-  Heatmapall <- subset(TN.combined, idents = 0:(cluster_count - 1))
+  message("Finding markers for heatmap...")
+  # We subset using indices to get all clusters
+  Heatmapall <- subset(TN.plotting, idents = levels(TN.plotting))
   Heatmapall.markers <- FindAllMarkers(Heatmapall, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25)
   write.csv(Heatmapall.markers, file = file.path(output_dirs$tables, "Findallmarkers.csv"), row.names = FALSE)
 
   top10 <- Heatmapall.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_log2FC)
 
-  safe_save_pdf(DoHeatmap(Heatmapall, features = top10$gene),
+  safe_save_pdf(DoHeatmap(Heatmapall, features = top10$gene, group.colors = plot_colors),
                 file.path(output_dirs$plots, "heatmap_top10.pdf"),
                 w = 25, h = 25)
 
-  # Cell proportion statistics
-  Cellproportion <- table(Idents(TN.combined), TN.combined$orig.ident1)
+  # --- 4. Proportion Plots ---
+  # Matches your uploaded proportion_plot.jpg
+  
+  # By Condition (ident1)
+  Cellproportion <- table(Idents(TN.plotting), TN.plotting$orig.ident1)
   Cellproportion <- round(sweep(Cellproportion, MARGIN = 2, STATS = colSums(Cellproportion), FUN = "/") * 100, 2)
   write.csv(Cellproportion, file = file.path(output_dirs$tables, "Cellproportion.csv"), row.names = TRUE)
 
-  # Cell proportion plot - clusters across samples
   Cellproportion_df <- as.data.frame(Cellproportion)
-  nb.cols <- nrow(CellNumber)
-  mycolors <- colorRampPalette(brewer.pal(min(nb.cols, 12), "Paired"))(nb.cols)
-
+  
   proportion_plot <- ggplot(Cellproportion_df, aes(x = Var2, y = Freq, fill = Var1)) +
     theme_bw(base_size = 15) +
     geom_col(position = "fill", width = 0.6) +
     xlab("Sample") +
     ylab("Proportion") +
-    theme(legend.title = element_blank()) +
-    scale_fill_manual(values = mycolors)
+    theme(legend.title = element_blank(), 
+          legend.text = element_text(size = 8)) + # Smaller text for longer labels
+    scale_fill_manual(values = plot_colors)
 
   safe_save_pdf(proportion_plot, file.path(output_dirs$plots, "proportion_plot.pdf"))
 
-  # Sample proportion plot - clusters within each sample (using ident2)
-  # Calculate proportion of each cluster within each sample
-  Sampleproportion <- table(Idents(TN.combined), TN.combined$orig.ident2)
+  # By Sample (ident2)
+  Sampleproportion <- table(Idents(TN.plotting), TN.plotting$orig.ident2)
   Sampleproportion <- round(sweep(Sampleproportion, MARGIN = 2, STATS = colSums(Sampleproportion), FUN = "/") * 100, 2)
   write.csv(Sampleproportion, file = file.path(output_dirs$tables, "Sampleproportion.csv"), row.names = TRUE)
 
-  # Create dataframe for plotting
   Sampleproportion_df <- as.data.frame(Sampleproportion)
   colnames(Sampleproportion_df) <- c("Cluster", "Sample", "Freq")
 
-  # Generate colors for clusters (same as main proportion plot)
   sample_proportion_plot <- ggplot(Sampleproportion_df, aes(x = Sample, y = Freq, fill = Cluster)) +
     theme_bw(base_size = 15) +
     geom_col(position = "fill", width = 0.6) +
     xlab("Sample") +
     ylab("Proportion") +
     theme(legend.title = element_blank(),
-          legend.text = element_text(size = 12)) +
-    scale_fill_manual(values = mycolors)
+          legend.text = element_text(size = 8)) +
+    scale_fill_manual(values = plot_colors)
 
   safe_save_pdf(sample_proportion_plot, file.path(output_dirs$plots, "sample_proportion_plot.pdf"))
 

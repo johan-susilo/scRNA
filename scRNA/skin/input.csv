@@ -1,10 +1,8 @@
 sample_names,ident1,ident2
-TN131_HTY,H,H131
-TN244_HTY,H,H244
-TN258_Unaffected,U,U258
-TN259_acute,A,A259
-TN260_chronic,C,C260
-NSkin1_NC_DPP4,N,N1DDP4
-NSkin2_NC_DPP4,N,N2DDP4
-NSkin3_NC_DPP4,N,N3DDP4
-NSkin4_MB,N,N4MB
+TN131_HTY,Healthy_Fresh,HTY131
+TN258_Unaffected,Unaffected,UA258
+TN259_acute,Acute,AC259
+TN260_chronic,Chronic_PMH,CH260
+2901,Healthy_Fixed,HTY2901
+3080,Healthy_Fixed,HTY3080
+3106,Healthy_Fixed,HTY3106

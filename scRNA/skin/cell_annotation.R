@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Usage: Rscript ./cell_annotation.R -r TN.combined_dim30.rds -s all
-# Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s scCATCH
-# Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s all -o /home/johan/output/skin_pmh/annotations
+# Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s scCATCH 
+# Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s all -o /home/johan/output/skin_pmh/annotations --consensus
 # Example: Rscript ./cell_annotation.R -r TN.combined_dim30.rds -s singleR,scCATCH -c 2
 # Example: Rscript ./cell_annotation.R -r TN.combined_dim30.rds -s all --consensus
 
@@ -148,7 +148,7 @@ run_singleR <- function(Joined_TN.combined) {
 
   pred.hpca <- SingleR(test = counts, ref = hpca.se, assay.type.test=1, labels = hpca.se$label.main)
   clustering.table_hpca <- table(pred.hpca@listData[["pruned.labels"]], Joined_TN.combined@active.ident)
-  write.csv(clustering.table_hpca, file = file.path(output_dirs$singleR, "SingleR_hpca.csv"), col.names = TRUE)
+  write.csv(clustering.table_hpca, file = file.path(output_dirs$singleR, "SingleR_hpca.csv"), row.names = TRUE)
 
   # bpe database
   message("Running SingleR with BlueprintEncode database...")
@@ -164,7 +164,7 @@ run_singleR <- function(Joined_TN.combined) {
 
   pred.bpe <- SingleR(test = counts, ref = bpe.se, assay.type.test=1, labels = bpe.se$label.main)
   clustering.table_bpe <- table(pred.bpe@listData[["pruned.labels"]], Joined_TN.combined@active.ident)
-  write.csv(clustering.table_bpe, file = file.path(output_dirs$singleR, "SingleR_bpe.csv"), col.names = TRUE)
+  write.csv(clustering.table_bpe, file = file.path(output_dirs$singleR, "SingleR_bpe.csv"), row.names = TRUE)
 
   # Process and summarize results
   message("Processing SingleR results...")
@@ -223,25 +223,27 @@ plot_markers <- function(Joined_TN.combined) {
     markers <- marker_sets[[cell_type]]
     plot_title <- gsub("_", " ", cell_type)
 
-    p <- DotPlot(Joined_TN.combined, features = markers, cols = c("white", "darkred"), dot.scale = 8) +
+    # Filter to available features to avoid "requested variables were not found" warnings
+    available_features <- rownames(Joined_TN.combined)
+    markers_filtered <- intersect(markers, available_features)
+
+    if (length(markers_filtered) == 0) {
+      message("Warning: No markers available in object for ", cell_type, " - skipping plot.")
+      return(NULL)
+    }
+
+    p <- DotPlot(Joined_TN.combined, features = markers_filtered, cols = c("white", "darkred"), dot.scale = 8) +
       RotatedAxis() + labs(title=plot_title) +
       theme(plot.title = element_text(hjust = 0.5, size=24))
 
     plot_file <- file.path(output_dirs$markers, paste0("Classical_markers_", cell_type, ".pdf"))
-    tryCatch({
-      pdf(plot_file, width = 15, height = 15)
-      print(p)
-      message("Saved marker plot: ", plot_file)
-    }, error = function(e) {
-      message("Warning: Failed to save marker plot for ", cell_type, ": ", conditionMessage(e))
-    }, finally = {
-      if (length(dev.list()) > 0) dev.off()
-    })
+    # Use safe_save_pdf helper to ensure device cleanup and consistent messages
+    safe_save_pdf(p, plot_file, w = 15, h = 15)
 
     return(cell_type)
   })
 
-  message("Marker plots generated for ", length(results), " cell types")
+  message("Marker plots generated for ", length(Filter(Negate(is.null), results)), " cell types")
   message("============================================================\n")
 }
 
@@ -369,7 +371,7 @@ run_scCATCH <- function(TN.combined, Joined_TN.combined) {
   obj <- findcelltype(object = obj)
 
   # Save results
-  write.csv(obj@celltype, file = file.path(output_dirs$scCATCH, "scCATCH.csv"), col.names = TRUE)
+  write.csv(obj@celltype, file = file.path(output_dirs$scCATCH, "scCATCH.csv"), row.names = FALSE)
 
   # Process scCATCH output for consensus (similar to Cell_anno_consensus.pl)
   message("Processing scCATCH results for consensus...")
@@ -405,152 +407,185 @@ run_scCATCH <- function(TN.combined, Joined_TN.combined) {
 #-------------------------------------------Consensus Annotation---------------------------------------------------
 generate_consensus_annotation <- function() {
   message("\n============================================================")
-  message("Generating Consensus Annotations")
+  message("Generating Consensus Annotations (Improved Voting)")
   message("============================================================")
 
-  # Initialize storage for annotations by cluster
-  cell_annotation <- list()
+  votes_by_cluster <- list()
 
-  # Read SingleR HPCA results
-  if (file.exists(file.path(output_dirs$singleR, "SingleR_hpca_summary.tsv"))) {
-    message("Reading SingleR HPCA annotations...")
-    hpca_data <- read.delim(file.path(output_dirs$singleR, "SingleR_hpca_summary.tsv"),
-                           header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+  # add_vote: register one or more types (comma-separated) as separate votes
+  add_vote <- function(cluster_id, cell_type_raw, source_name) {
+    if (is.null(cell_type_raw) || is.na(cell_type_raw) || cell_type_raw == "") return(NULL)
 
-    if ("annotation" %in% rownames(hpca_data)) {
-      annotation_row <- hpca_data[rownames(hpca_data) == "annotation", ]
-      for (col_name in colnames(annotation_row)) {
-        if (col_name != "" && !is.na(annotation_row[[col_name]]) && annotation_row[[col_name]] != "") {
-          cluster_key <- paste0("X", col_name)
-          normalized_type <- normalize_cell_type(annotation_row[[col_name]])
-          if (!cluster_key %in% names(cell_annotation)) {
-            cell_annotation[[cluster_key]] <- list()
-          }
-          if (!normalized_type %in% names(cell_annotation[[cluster_key]])) {
-            cell_annotation[[cluster_key]][[normalized_type]] <- 0
-          }
-          cell_annotation[[cluster_key]][[normalized_type]] <- cell_annotation[[cluster_key]][[normalized_type]] + 1
-        }
+    # Normalize cluster id: remove leading X or non-digit chars, keep as character
+    clean_cluster <- as.character(gsub("^X+", "", as.character(cluster_id)))
+    clean_cluster <- trimws(clean_cluster)
+
+    # Split multi-type annotations and normalize each
+    types <- unlist(strsplit(as.character(cell_type_raw), ","))
+    types <- trimws(types)
+    types <- types[types != ""]
+    types <- sapply(types, normalize_cell_type, USE.NAMES = FALSE)
+
+    for (t in types) {
+      if (is.null(t) || t == "" || tolower(t) == "unassigned" || tolower(t) == "unknown") next
+      vote_row <- data.frame(Source = source_name, Vote = t, stringsAsFactors = FALSE)
+      if (is.null(votes_by_cluster[[clean_cluster]])) {
+        votes_by_cluster[[clean_cluster]] <<- vote_row
+      } else {
+        votes_by_cluster[[clean_cluster]] <<- rbind(votes_by_cluster[[clean_cluster]], vote_row)
       }
     }
   }
 
-  # Read SingleR BPE results
-  if (file.exists(file.path(output_dirs$singleR, "SingleR_bpe_summary.tsv"))) {
-    message("Reading SingleR BPE annotations...")
-    bpe_data <- read.delim(file.path(output_dirs$singleR, "SingleR_bpe_summary.tsv"),
-                          header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+  # robust reader for tabular summary files
+  safe_read_table <- function(path) {
+    if (!file.exists(path)) return(NULL)
+    # try reading with row.names = 1 first (common when rownames were written)
+    df <- tryCatch(read.delim(path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, row.names = 1),
+                   error = function(e) NULL)
+    if (!is.null(df)) return(df)
+    # fallback: read without row.names
+    df2 <- tryCatch(read.delim(path, header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE),
+                    error = function(e) NULL)
+    return(df2)
+  }
 
-    if ("annotation" %in% rownames(bpe_data)) {
-      annotation_row <- bpe_data[rownames(bpe_data) == "annotation", ]
-      for (col_name in colnames(annotation_row)) {
-        if (col_name != "" && !is.na(annotation_row[[col_name]]) && annotation_row[[col_name]] != "") {
-          cluster_key <- paste0("X", col_name)
-          normalized_type <- normalize_cell_type(annotation_row[[col_name]])
-          if (!cluster_key %in% names(cell_annotation)) {
-            cell_annotation[[cluster_key]] <- list()
-          }
-          if (!normalized_type %in% names(cell_annotation[[cluster_key]])) {
-            cell_annotation[[cluster_key]][[normalized_type]] <- 0
-          }
-          cell_annotation[[cluster_key]][[normalized_type]] <- cell_annotation[[cluster_key]][[normalized_type]] + 1
+  # process matrix-like summary (SingleR/CelliD) — supports annotation as a row or column
+  process_matrix_file <- function(path, tool_name) {
+    df <- safe_read_table(path)
+    if (is.null(df)) return()
+
+    # case 1: annotation as a row (rownames include 'annotation')
+    if ("annotation" %in% rownames(df)) {
+      annot_row <- df[rownames(df) == "annotation", , drop = FALSE]
+      for (col in colnames(annot_row)) {
+        add_vote(col, annot_row[[col]], tool_name)
+      }
+      message("Added votes from ", tool_name, " (annotation row).")
+      return()
+    }
+
+    # case 2: annotation as a column
+    if ("annotation" %in% colnames(df)) {
+      # rownames may be cluster identifiers
+      for (i in seq_len(nrow(df))) {
+        cluster_id <- if (!is.null(rownames(df)) && rownames(df)[i] != "") rownames(df)[i] else df[i, 1]
+        add_vote(cluster_id, df[i, "annotation"], tool_name)
+      }
+      message("Added votes from ", tool_name, " (annotation column).")
+      return()
+    }
+
+    # case 3: sometimes annotation appears as the last row but without proper rownames
+    # try to detect a row named like "annotation" in the first column
+    first_col <- df[[1]]
+    idx <- which(tolower(first_col) == "annotation")
+    if (length(idx) == 1) {
+      annot_row <- df[idx, -1, drop = FALSE]
+      cols <- colnames(df)[-1]
+      for (j in seq_along(cols)) {
+        add_vote(cols[j], annot_row[[j]], tool_name)
+      }
+      message("Added votes from ", tool_name, " (annotation detected in first column).")
+      return()
+    }
+
+    message("No annotation row/column found in ", path)
+  }
+
+  # Collect votes
+  process_matrix_file(file.path(output_dirs$singleR, "SingleR_hpca_summary.tsv"), "SingleR_HPCA")
+  process_matrix_file(file.path(output_dirs$singleR, "SingleR_bpe_summary.tsv"), "SingleR_BPE")
+  process_matrix_file(file.path(output_dirs$celliD, "CelliD_PanglaoDB_summary.tsv"), "CelliD")
+
+  # scCATCH wide summary: columns are clusters (names like X0); values are cell types (possibly multiple rows)
+  sccatch_path <- file.path(output_dirs$scCATCH, "scCATCH_summary.tsv")
+  if (file.exists(sccatch_path)) {
+    scc_df <- safe_read_table(sccatch_path)
+    if (!is.null(scc_df)) {
+      # iterate columns (each column corresponds to a cluster)
+      for (col in colnames(scc_df)) {
+        vals <- scc_df[[col]]
+        vals <- vals[!is.na(vals) & vals != ""]
+        for (v in vals) {
+          # scCATCH may list comma-separated types in cells; add_vote will split them
+          add_vote(col, v, "scCATCH")
         }
       }
+      message("Added votes from scCATCH.")
     }
   }
 
-  # Read CelliD results
-  if (file.exists(file.path(output_dirs$celliD, "CelliD_PanglaoDB_summary.tsv"))) {
-    message("Reading CelliD annotations...")
-    cellid_data <- read.delim(file.path(output_dirs$celliD, "CelliD_PanglaoDB_summary.tsv"),
-                             header = TRUE, stringsAsFactors = FALSE, sep = "\t")
-
-    if ("annotation" %in% rownames(cellid_data)) {
-      annotation_row <- cellid_data[rownames(cellid_data) == "annotation", ]
-      for (col_name in colnames(annotation_row)) {
-        if (col_name != "" && col_name != "X" && !is.na(annotation_row[[col_name]]) && annotation_row[[col_name]] != "unassigned") {
-          cluster_key <- paste0("X", col_name)
-          normalized_type <- normalize_cell_type(annotation_row[[col_name]])
-          if (!cluster_key %in% names(cell_annotation)) {
-            cell_annotation[[cluster_key]] <- list()
-          }
-          if (!normalized_type %in% names(cell_annotation[[cluster_key]])) {
-            cell_annotation[[cluster_key]][[normalized_type]] <- 0
-          }
-          cell_annotation[[cluster_key]][[normalized_type]] <- cell_annotation[[cluster_key]][[normalized_type]] + 1
-        }
-      }
-    }
-  }
-
-  # Read scCATCH results
-  if (file.exists(file.path(output_dirs$scCATCH, "scCATCH_summary.tsv"))) {
-    message("Reading scCATCH annotations...")
-    sccatch_data <- read.delim(file.path(output_dirs$scCATCH, "scCATCH_summary.tsv"),
-                              header = TRUE, stringsAsFactors = FALSE, sep = "\t")
-
-    for (row_idx in 1:nrow(sccatch_data)) {
-      for (col_name in colnames(sccatch_data)) {
-        cell_type_str <- sccatch_data[row_idx, col_name]
-        if (!is.na(cell_type_str) && cell_type_str != "") {
-          # Split multi-type annotations
-          individual_types <- strsplit(cell_type_str, ",")[[1]]
-          for (cell_type in individual_types) {
-            cell_type <- trimws(cell_type)
-            cluster_key <- col_name
-            normalized_type <- normalize_cell_type(cell_type)
-            if (!cluster_key %in% names(cell_annotation)) {
-              cell_annotation[[cluster_key]] <- list()
-            }
-            if (!normalized_type %in% names(cell_annotation[[cluster_key]])) {
-              cell_annotation[[cluster_key]][[normalized_type]] <- 0
-            }
-            cell_annotation[[cluster_key]][[normalized_type]] <- cell_annotation[[cluster_key]][[normalized_type]] + 1
-          }
-        }
-      }
-    }
-  }
-
-  # Generate consensus by finding max count for each cluster
-  message("Computing consensus annotations...")
+  # Tally votes and build consensus table
   consensus_results <- data.frame(
     Cluster = character(),
-    Cell_Type = character(),
+    Top_Cell_Type = character(),
     Count = integer(),
+    Total_Votes = integer(),
+    Percent = numeric(),
+    Sources = character(),
+    Vote_Details = character(),
     stringsAsFactors = FALSE
   )
 
-  for (cluster in sort(names(cell_annotation))) {
-    max_count <- 0
-    max_cell_types <- c()
-
-    for (cell_type in names(cell_annotation[[cluster]])) {
-      count <- cell_annotation[[cluster]][[cell_type]]
-      if (count > max_count) {
-        max_count <- count
-        max_cell_types <- c(cell_type)
-      } else if (count == max_count) {
-        max_cell_types <- c(max_cell_types, cell_type)
-      }
+  clusters <- sort(names(votes_by_cluster), decreasing = FALSE)
+  for (cluster in clusters) {
+    vote_df <- votes_by_cluster[[cluster]]
+    if (is.null(vote_df) || nrow(vote_df) == 0) {
+      consensus_results <- rbind(consensus_results, data.frame(
+        Cluster = cluster,
+        Top_Cell_Type = "Unknown",
+        Count = 0,
+        Total_Votes = 0,
+        Percent = 0,
+        Sources = "",
+        Vote_Details = "",
+        stringsAsFactors = FALSE
+      ))
+      next
     }
 
-    cell_types_str <- paste(max_cell_types, collapse = ", ")
-    consensus_results <- rbind(consensus_results,
-                              data.frame(Cluster = cluster,
-                                       Cell_Type = cell_types_str,
-                                       Count = max_count,
-                                       stringsAsFactors = FALSE))
+    # vote counts per cell type
+    vc <- as.data.frame(table(vote_df$Vote), stringsAsFactors = FALSE)
+    colnames(vc) <- c("CellType", "Votes")
+    vc <- vc[order(vc$Votes, decreasing = TRUE, vc$CellType), , drop = FALSE]
+
+    total_votes <- sum(vc$Votes)
+    # Winner(s): highest vote count; include ties
+    max_votes <- vc$Votes[1]
+    winners <- vc$CellType[vc$Votes == max_votes]
+    top_label <- paste(winners, collapse = "; ")
+
+    percent <- round(100 * max_votes / total_votes, 1)
+
+    # sources that voted for winner(s)
+    voters_for_winner <- unique(vote_df$Source[vote_df$Vote %in% winners])
+    sources_str <- paste(voters_for_winner, collapse = ", ")
+
+    # vote details: type(count,%) ; sorted
+    vc$Percent <- round(100 * vc$Votes / total_votes, 1)
+    vote_details <- paste(paste0(vc$CellType, " (", vc$Votes, ", ", vc$Percent, "%)"), collapse = "; ")
+
+    consensus_results <- rbind(consensus_results, data.frame(
+      Cluster = cluster,
+      Top_Cell_Type = top_label,
+      Count = as.integer(max_votes),
+      Total_Votes = as.integer(total_votes),
+      Percent = percent,
+      Sources = sources_str,
+      Vote_Details = vote_details,
+      stringsAsFactors = FALSE
+    ))
   }
 
-  # Save consensus results
-  write.table(consensus_results,
-              file = file.path(output_dirs$consensus, "consensus_annotation.tsv"),
-              sep = "\t", row.names = FALSE, quote = FALSE)
+  # write neat table (Cluster as numeric if possible)
+  consensus_results$Cluster <- as.character(consensus_results$Cluster)
+  out_path <- file.path(output_dirs$consensus, "consensus_annotation.tsv")
+  write.table(consensus_results, out_path, sep = "\t", row.names = FALSE, quote = FALSE)
 
-  message("Consensus annotation completed!")
-  message("Results saved to: ", file.path(output_dirs$consensus, "consensus_annotation.tsv"))
-  message("============================================================\n")
+  message("Consensus annotation completed! Saved to: ", out_path)
+  message("Top results:")
+  print(head(consensus_results))
 
   return(consensus_results)
 }
@@ -559,138 +594,77 @@ generate_consensus_annotation <- function() {
 #-------------------------------------------Generate Annotated Plots-----------------------------------------------
 generate_annotated_plots <- function(TN.combined) {
   message("\n============================================================")
-  message("Generating Annotated Plots")
+  message("Generating Annotated Plots (Robust)")
   message("============================================================")
 
-  # Read consensus annotations
   consensus_file <- file.path(output_dirs$consensus, "consensus_annotation.tsv")
-  if (!file.exists(consensus_file)) {
-    stop("Consensus annotation file not found: ", consensus_file,
-         "\nPlease run 'consensus' step first")
+  if (!file.exists(consensus_file)) stop("Consensus file missing.")
+  
+  consensus_data <- read.delim(consensus_file, sep = "\t", stringsAsFactors = FALSE)
+  
+  # Ensure Cluster column is character for matching
+  consensus_data$Cluster <- as.character(consensus_data$Cluster)
+
+  # Get current Cluster IDs from Seurat object
+  current_ids <- levels(TN.combined)
+  
+  # --- Create Mapping Vectors ---
+  # 1. Detailed: "C1_T cell"
+  # 2. Clean: "T cell"
+  
+  new_names_detailed <- character(length(current_ids))
+  new_names_clean <- character(length(current_ids))
+  names(new_names_detailed) <- current_ids
+  names(new_names_clean) <- current_ids
+  
+  for (id in current_ids) {
+    # Match ID (Strip X if it exists in Seurat object just in case, though unlikely)
+    clean_id <- gsub("^X", "", id) 
+    
+    # Look up in consensus file
+    match_row <- consensus_data[consensus_data$Cluster == clean_id, ]
+    
+    if (nrow(match_row) > 0) {
+      ctype <- match_row$Cell_Type[1]
+      new_names_detailed[id] <- paste0("C", id, "_", ctype)
+      new_names_clean[id] <- ctype
+    } else {
+      new_names_detailed[id] <- paste0("C", id, "_Unknown")
+      new_names_clean[id] <- "Unknown"
+    }
   }
+  
+  # --- Apply Renaming & Plotting ---
+  
+  # 1. Detailed Plot (Unique Clusters)
+  TN.detailed <- RenameIdents(TN.combined, new_names_detailed)
+  
+  p1 <- DimPlot(TN.detailed, reduction = "umap", label = TRUE, repel = TRUE) + 
+        NoLegend() + ggtitle("Annotation (Cluster + Type)")
+        
+  safe_save_pdf(p1, file.path(output_dirs$annotated_plots, "UMAP_Annotated_Detailed.pdf"))
 
-  message("Reading consensus annotations from: ", consensus_file)
-  consensus_data <- read.delim(consensus_file, header = TRUE, stringsAsFactors = FALSE, sep = "\t")
+  # 2. Clean Plot (Merged Cell Types)
+  TN.clean <- RenameIdents(TN.combined, new_names_clean)
+  
+  # Generate colors based on number of CELL TYPES (not clusters)
+  n_types <- length(unique(Idents(TN.clean)))
+  colors_clean <- colorRampPalette(RColorBrewer::brewer.pal(min(n_types, 12), "Set3"))(n_types)
 
-  # Create cluster naming in format: C0_CellType, C1_CellType, etc.
-  message("\nCreating cluster names in format: C#_CellType")
+  p2 <- DimPlot(TN.clean, reduction = "umap", label = TRUE, repel = TRUE, label.size = 5) + 
+        NoLegend() + ggtitle("Annotation (Cell Types Only)")
+  
+  p3 <- DimPlot(TN.clean, reduction = "umap", label = FALSE) + 
+        scale_color_manual(values = colors_clean) + ggtitle("Annotation (Legend)")
 
-  # Create mapping from cluster numbers to C#_CellType format
-  new.cluster.ids <- paste0("C", consensus_data$Cluster, "_", consensus_data$Cell_Type)
-  names(new.cluster.ids) <- levels(TN.combined)
+  safe_save_pdf(p2, file.path(output_dirs$annotated_plots, "UMAP_Annotated_Clean_LabelT.pdf"))
+  safe_save_pdf(p3, file.path(output_dirs$annotated_plots, "UMAP_Annotated_Clean_LabelF.pdf"))
 
-  # Display the mapping
-  message("\nCluster naming:")
-  for (i in seq_along(new.cluster.ids)) {
-    message("  ", names(new.cluster.ids)[i], " -> ", new.cluster.ids[i])
-  }
-
-  # Rename identities
-  TNname.combined <- RenameIdents(TN.combined, new.cluster.ids)
-
-  # Define colors for unique cell types
-  n_clusters <- length(unique(Idents(TNname.combined)))
-  cluster_colors <- colorRampPalette(RColorBrewer::brewer.pal(12, "Set3"))(n_clusters)
-
-  # UMAP with cluster labels (C#_CellType format)
-  safe_save_pdf(
-    DimPlot(TNname.combined, reduction = "umap", label = TRUE, label.size = 4,
-            repel = TRUE, pt.size = 0.8) +
-      NoLegend() +
-      ggtitle("UMAP - Annotated Clusters"),
-    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_labelT.pdf")
-  )
-
-  # UMAP with legend
-  safe_save_pdf(
-    DimPlot(TNname.combined, reduction = "umap", label = FALSE, pt.size = 0.8) +
-      scale_color_manual(values = cluster_colors) +
-      ggtitle("UMAP - Annotated Clusters (with legend)"),
-    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_labelF.pdf")
-  )
-
-  # UMAP split by condition
-  safe_save_pdf(
-    DimPlot(TNname.combined, reduction = "umap", split.by = "orig.ident1",
-            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
-      NoLegend() +
-      ggtitle("UMAP - Annotated Clusters (split by condition)"),
-    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_splitorigident1.pdf")
-  )
-
-  # UMAP split by sample
-  safe_save_pdf(
-    DimPlot(TNname.combined, reduction = "umap", split.by = "orig.ident2",
-            label = TRUE, label.size = 3, repel = TRUE, pt.size = 0.5, ncol = 3) +
-      NoLegend() +
-      ggtitle("UMAP - Annotated Clusters (split by sample)"),
-    file.path(output_dirs$annotated_plots, "TNcombined_umap_annotated_splitorigident2.pdf")
-  )
-
-  # Proportion plots with annotated cluster names
-  message("Generating annotated cluster proportion plots...")
-
-  # Proportion by sample group
-  annotated_proportion_ident1 <- table(Idents(TNname.combined), TNname.combined$orig.ident1)
-  annotated_proportion_ident1 <- round(sweep(annotated_proportion_ident1, MARGIN = 2,
-                                              STATS = colSums(annotated_proportion_ident1), FUN = "/") * 100, 2)
-  write.csv(annotated_proportion_ident1,
-            file = file.path(output_dirs$annotated_plots, "annotated_proportion_by_group.csv"),
-            row.names = TRUE)
-
-  annotated_proportion_ident1_df <- as.data.frame(annotated_proportion_ident1)
-  colnames(annotated_proportion_ident1_df) <- c("Cluster", "Group", "Freq")
-
-  annotated_proportion_ident1_plot <- ggplot(annotated_proportion_ident1_df,
-                                              aes(x = Group, y = Freq, fill = Cluster)) +
-    theme_bw(base_size = 15) +
-    geom_col(position = "fill", width = 0.6) +
-    xlab("Sample Group") +
-    ylab("Proportion") +
-    labs(fill = "Cluster") +
-    theme(legend.text = element_text(size = 8)) +
-    scale_fill_manual(values = cluster_colors) +
-    ggtitle("Annotated Cluster Proportion by Sample Group")
-
-  safe_save_pdf(annotated_proportion_ident1_plot,
-                file.path(output_dirs$annotated_plots, "annotated_proportion_by_group.pdf"))
-
-  # Proportion by individual sample
-  annotated_proportion_ident2 <- table(Idents(TNname.combined), TNname.combined$orig.ident2)
-  annotated_proportion_ident2 <- round(sweep(annotated_proportion_ident2, MARGIN = 2,
-                                              STATS = colSums(annotated_proportion_ident2), FUN = "/") * 100, 2)
-  write.csv(annotated_proportion_ident2,
-            file = file.path(output_dirs$annotated_plots, "annotated_proportion_by_sample.csv"),
-            row.names = TRUE)
-
-  annotated_proportion_ident2_df <- as.data.frame(annotated_proportion_ident2)
-  colnames(annotated_proportion_ident2_df) <- c("Cluster", "Sample", "Freq")
-
-  annotated_proportion_ident2_plot <- ggplot(annotated_proportion_ident2_df,
-                                              aes(x = Sample, y = Freq, fill = Cluster)) +
-    theme_bw(base_size = 15) +
-    geom_col(position = "fill", width = 0.6) +
-    xlab("Sample") +
-    ylab("Proportion") +
-    labs(fill = "Cluster") +
-    theme(legend.text = element_text(size = 8),
-          axis.text.x = element_text(angle = 45, hjust = 1)) +
-    scale_fill_manual(values = cluster_colors) +
-    ggtitle("Annotated Cluster Proportion by Sample")
-
-  safe_save_pdf(annotated_proportion_ident2_plot,
-                file.path(output_dirs$annotated_plots, "annotated_proportion_by_sample.pdf"))
-
-  # Save annotated Seurat object
-  annotated_rds <- file.path(output_dirs$annotated_plots, "TN.combined_annotated.rds")
-  message("Saving annotated Seurat object to: ", annotated_rds)
-  saveRDS(TNname.combined, annotated_rds)
-
-  message("Annotated plots generation completed!")
-  message("Plots saved to: ", output_dirs$annotated_plots)
-  message("============================================================\n")
-
-  return(TNname.combined)
+  # Save the CLEAN object as the final annotated RDS
+  saveRDS(TN.clean, file.path(output_dirs$annotated_plots, "TN.combined_annotated.rds"))
+  message("Saved annotated object (Clean types) to RDS.")
+  
+  return(TN.clean)
 }
 #-------------------------------------------Generate Annotated Plots end-------------------------------------------
 
@@ -897,9 +871,9 @@ execute_step <- function(step) {
            plot_markers(seurat_objects$Joined_TN.combined)
            run_celliD(seurat_objects$TN.combined)
            run_scCATCH(seurat_objects$TN.combined, seurat_objects$Joined_TN.combined)
-           if (opt$consensus) {
-             generate_consensus_annotation()
-           }
+           # Always generate consensus after running all annotation steps to avoid accidental omission
+           message("Generating consensus annotations (forced for 'all' step)...")
+           generate_consensus_annotation()
          },
          stop("Invalid step. Valid options: read_rds, singleR, markers, celliD, scCATCH, consensus, annotated_plots, combined_plots, all")
   )

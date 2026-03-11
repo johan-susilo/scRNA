@@ -23,4 +23,3 @@ STAR --runThreadN "${SLURM_CPUS_PER_TASK:-8}" \  # CPU threads (8 default)
 echo "STAR index complete!"
 date
 
-# Requirements: ~30-40GB RAM, 30-60 minutes
