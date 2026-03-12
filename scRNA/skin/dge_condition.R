@@ -3,15 +3,10 @@ library(dplyr)
 library(ggplot2)
 library(DESeq2)
 library(tidyr)
-library(dplyr)
 library(ggrepel)
+library(stringr)
 
-out_dir <- "/home/johan/output/skin_pmh/dge/macrophage"
-
-if (!dir.exists(out_dir)) {
-  dir.create(out_dir, recursive = TRUE)
-}
-
+# --- 1. Load Data and Set Conditions ---
 pmh_obj <- readRDS("/home/johan/output/skin_pmh/TN.combined_dim30.rds")
 
 pmh_obj$condition <- ifelse(
@@ -20,121 +15,168 @@ pmh_obj$condition <- ifelse(
   "PMH"
 )
 
-# verify
-table(pmh_obj$orig.ident2, pmh_obj$condition)
+# Verify condition assignment
+print(table(pmh_obj$orig.ident2, pmh_obj$condition))
 
-
-# === STEP 1: Fresh AggregateExpression ===
+# === STEP 1: Global AggregateExpression ===
+# We do this ONCE for the whole object to save time. 
+# return.seurat = FALSE gives us the raw matrices.
+print("Aggregating expression... This may take a moment.")
 pb_list <- AggregateExpression(
   pmh_obj, 
   assays = "RNA", 
   slot = "counts",
   group.by = c("seurat_clusters", "orig.ident", "condition"),
-  return.seurat = TRUE
+  return.seurat = FALSE 
 )
 
-print("pb_list contents:")
-print(names(pb_list))
-print("pb_list length:")
-print(length(pb_list))
+# Extract RNA count matrix
+counts_matrix <- pb_list$RNA
 
-# === STEP 2: Extract RNA assay ===
-mac_pb_full <- pb_list[["RNA"]]
-print(colnames(mac_pb_full)[1:10]) #g0 represent cluster 0 aggregate
+# --- 2. Define the Reusable Pseudobulk Function ---
 
-# === STEP 3: Select cluster 6 ===
-cluster6_cols <- grep("^g6_", colnames(mac_pb_full), value = TRUE)
-
-# 2. Subset WITH drop = FALSE to preserve colnames even if only 1 match
-mac_pb_subset <- mac_pb_full[, cluster6_cols, drop = FALSE]
-
-# 4. Create metadata
-mac_meta <- data.frame(pseudobulk_id = cluster6_cols) %>%
-  # remove = FALSE keeps the original column so we can use it for rownames later
-  tidyr::separate(pseudobulk_id, into = c("cluster", "sample", "condition"), sep = "_", remove = FALSE) %>%
-  dplyr::mutate(sample_id = sample) %>%
-  dplyr::select(pseudobulk_id, sample_id, condition)   # Keep pseudobulk_id in the select statement
-
-# Set rownames
-rownames(mac_meta) <- mac_meta$pseudobulk_id
-print(head(mac_meta)) # Verify it worked
-
-#extract count matrix for DESeq2
-counts_matrix <- as.matrix(GetAssayData(mac_pb_full, slot = "counts"))
-counts_cluster6 <- counts_matrix[, rownames(mac_meta), drop = FALSE]
-
-# --- Verify the order matches perfectly ---
-counts_cluster6 <- counts_cluster6[, rownames(mac_meta)]
-all(colnames(counts_cluster6) == rownames(mac_meta)) # This should print TRUE
-
-# --- Create the DESeq2 object ---
-dds <- DESeqDataSetFromMatrix(
-  countData = counts_cluster6,
-  colData = mac_meta,
-  design = ~ condition
-)
-
-# run deseq pipeline
-dds <- DESeq(dds)
-#extract result
-res <- results(dds, contrast = c("condition", "PMH", "Healthy"))
-
-res_ordered <- res[order(res$padj), ]
-print(head(res_ordered))
-
-#create a data frame for plotting
-res_df <- as.data.frame(res)
-res_df <- res_df %>% filter(!is.na(padj)) #filter out na
-res_df$gene <- rownames(res_df) #move row names (gene) into column
-
-res_df <- res_df %>%
-  mutate(
-    significance = case_when(
-      padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
-      padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
-      TRUE ~ "Not Significant"
+run_pseudobulk_dge <- function(cell_type_name, cluster_ids, base_out_dir, counts_mat) {
+  
+  print(paste("=========================================="))
+  print(paste("Running Pseudobulk DGE for:", cell_type_name))
+  print(paste("Clusters included:", paste(cluster_ids, collapse = ", ")))
+  
+  # Setup directory
+  out_dir <- file.path(base_out_dir, cell_type_name)
+  if (!dir.exists(out_dir)) { dir.create(out_dir, recursive = TRUE) }
+  
+  # === STEP 2: Select Specific Clusters (ROBUST FIX) ===
+  all_cols <- colnames(counts_mat)
+  
+  # Extract the first chunk before the underscore (e.g., extracts "g6" or "6")
+  cluster_prefixes <- str_extract(all_cols, "^[^_]+")
+  
+  # Strip any letters so "g6" becomes just "6"
+  cluster_numbers <- str_remove_all(cluster_prefixes, "[a-zA-Z]")
+  
+  # Find columns where the cleaned number matches our target IDs
+  target_cols <- all_cols[cluster_numbers %in% as.character(cluster_ids)]
+  
+  if (length(target_cols) == 0) {
+    # If it fails again, print the actual column names so we can see what Seurat did
+    print("Available columns look like this:")
+    print(head(all_cols))
+    stop(paste("No pseudobulk samples found for clusters:", paste(cluster_ids, collapse = ", ")))
+  }
+  
+  # Subset the matrix
+  counts_subset <- counts_mat[, target_cols, drop = FALSE]
+  
+  # === STEP 3: Create Metadata ===
+  meta <- data.frame(pseudobulk_id = target_cols) %>%
+    mutate(
+      cluster = str_extract(pseudobulk_id, "^[^_]+"),
+      condition = str_extract(pseudobulk_id, "[^_]+$"),
+      sample_id = str_replace(pseudobulk_id, paste0("^", cluster, "_"), ""),
+      sample_id = str_replace(sample_id, paste0("_", condition, "$"), "")
     )
-  ) %>%
-  select(gene, everything())
+  
+  rownames(meta) <- meta$pseudobulk_id
+  
+  # Verify alignment
+  counts_subset <- counts_subset[, rownames(meta), drop = FALSE]
+  stopifnot(all(colnames(counts_subset) == rownames(meta))) 
+  
+  # === STEP 4: DESeq2 Pipeline ===
+  meta$condition <- factor(meta$condition, levels = c("Healthy", "PMH"))
+  
+  # Account for multiple clusters in the design formula if necessary
+  if (length(unique(meta$cluster)) > 1) {
+    design_formula <- ~ cluster + condition
+  } else {
+    design_formula <- ~ condition
+  }
+  
+  dds <- DESeqDataSetFromMatrix(
+    countData = counts_subset,
+    colData = meta,
+    design = design_formula
+  )
+  
+  dds <- DESeq(dds)
+  res <- results(dds, contrast = c("condition", "PMH", "Healthy"))
+  
+  # === STEP 5: Formatting and Saving Results ===
+  res_df <- as.data.frame(res) %>% 
+    filter(!is.na(padj)) %>% 
+    mutate(gene = rownames(.)) %>%
+    mutate(
+      significance = case_when(
+        padj < 0.05 & log2FoldChange > 1 ~ "Upregulated",
+        padj < 0.05 & log2FoldChange < -1 ~ "Downregulated",
+        TRUE ~ "Not Significant"
+      )
+    ) %>%
+    select(gene, everything()) %>%
+    arrange(padj)
+  
+  write.csv(res_df, file.path(out_dir, paste0("deseq2_", cell_type_name, ".csv")), row.names = FALSE)
+  
+  # === STEP 6: Visualization ===
+  top_genes <- res_df %>%
+    filter(significance != "Not Significant") %>% 
+    group_by(significance) %>% 
+    arrange(padj) %>% 
+    slice_head(n = 20) %>% 
+    ungroup() 
+  
+  # MA plot
+  pdf(file.path(out_dir, paste0("MA_plot_", cell_type_name, ".pdf")), width = 6, height = 5)
+  DESeq2::plotMA(res, main = paste("MA Plot:", cell_type_name, "(PMH vs Healthy)"), ylim = c(-8, 8))
+  dev.off()
+  
+  # Volcano plot
+  volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = significance)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_text_repel(data = top_genes, 
+                    aes(label = gene), 
+                    color = "black", 
+                    box.padding = 0.5, 
+                    max.overlaps = Inf) +
+    scale_color_manual(values = c("Upregulated" = "red", 
+                                  "Downregulated" = "blue", 
+                                  "Not Significant" = "grey80")) +
+    theme_minimal() +
+    labs(title = paste("Volcano Plot:", cell_type_name, "(PMH vs Healthy)"))
+  
+  ggsave(filename = file.path(out_dir, paste0("volcano_plot_", cell_type_name, ".png")),
+         plot = volcano_plot,
+         width = 6,
+         height = 5)
+  
+  print(paste("Finished", cell_type_name, "- Files saved to:", out_dir))
+  return(res_df)
+}
 
-write.csv(res_df, file.path(out_dir, "deseq2_results.csv"), row.names = FALSE)
+# --- 3. Execute for Each Cell Type ---
 
-# 1. Create a subset of the top 10 UP and top 10 DOWN genes to label
-top_genes <- res_df %>%
-  filter(significance != "Not Significant") %>%  # Keep only the significant ones
-  group_by(significance) %>%                     # Split them into the "Up" and "Down" groups
-  arrange(padj) %>%                              # Sort by the most significant (lowest padj)
-  slice_head(n = 10) %>%                         # Grab the top 10 rows from EACH group
-  ungroup()                                      # Ungroup to return to a normal dataframe
+base_dir <- "/home/johan/output/skin_pmh/dge"
 
-#ma plot
-# Open a PDF file
-pdf("/home/johan/output/skin_pmh/dge/macrophage/MA_plot_cluster6.pdf", width = 6, height = 5)
+# 1. Macrophage (Cluster 6 only)
+macrophage_res <- run_pseudobulk_dge(
+  cell_type_name = "macrophage", 
+  cluster_ids = c("6"), 
+  base_out_dir = base_dir, 
+  counts_mat = counts_matrix
+)
 
-# Generate the MA plot directly from the DESeq2 results object (res)
-# ylim shrinks the y-axis to keep extreme outliers from zooming the plot out too far
-DESeq2::plotMA(res, main = "MA Plot: PMH vs Healthy", ylim = c(-8, 8))
+# 2. Fibroblasts (Clusters 1, 5, 7, 10 combined)
+fibroblast_res <- run_pseudobulk_dge(
+  cell_type_name = "fibroblast", 
+  cluster_ids = c("1", "5", "7", "10"), 
+  base_out_dir = base_dir, 
+  counts_mat = counts_matrix
+)
 
-# Close and save the file
-dev.off()
-
-#volcano plot
-
-volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = significance)) +
-  geom_point(alpha = 0.6, size = 1.5) +
-  geom_text_repel(data = top_genes, 
-                  aes(label = gene), 
-                  color = "black",   # Makes the text easy to read
-                  box.padding = 0.5, # Adds a little physical space around the text
-                  max.overlaps = Inf) +
-  scale_color_manual(values = c("Upregulated" = "red", 
-                                "Downregulated" = "blue", 
-                                "Not Significant" = "grey80")) +
-  theme_minimal() +
-  labs(title = "Volcano Plot: PMH vs Healthy")
-
-ggsave(filename = file.path(out_dir, "volcano_plot_cluster6.pdf"),
-       plot = volcano_plot,
-       width = 6,
-       height = 5)
-
+# 3. Keratinocytes (Clusters 0, 2, 8, 11 combined)
+keratinocyte_res <- run_pseudobulk_dge(
+  cell_type_name = "keratinocyte", 
+  cluster_ids = c("0", "2", "8", "11"), 
+  base_out_dir = base_dir, 
+  counts_mat = counts_matrix
+)
