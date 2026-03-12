@@ -122,7 +122,7 @@ krt_all <- run_fibroblast_dge(
   seurat_obj = pmh_obj, 
   ident.1 = "11", 
   ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_markers_cluster1_vs_5_7_10",
+  output_prefix = "keratinocyte_markers_cluster11_vs_0_2_8",
   out_dir = out_dir_krt
 )
 
@@ -132,7 +132,7 @@ krt_pmh <- run_fibroblast_dge(
   seurat_obj = pmh_subset, 
   ident.1 = "11", 
   ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_PMH_cluster1_vs_5_7_10",
+  output_prefix = "keratinocyte_PMH_cluster11_vs_0_2_8",
   out_dir = out_dir_krt
 )
 
@@ -142,6 +142,6 @@ krt_healthy <- run_fibroblast_dge(
   seurat_obj = healthy_subset, 
   ident.1 = "11", 
   ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_Healthy_cluster1_vs_5_7_10",
+  output_prefix = "keratinocyte_Healthy_cluster11_vs_0_2_8",
   out_dir = out_dir_krt
 )
