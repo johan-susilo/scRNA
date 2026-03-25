@@ -132,6 +132,13 @@ run_singleR <- function(Joined_TN.combined) {
   message("\n============================================================")
   message("Starting SingleR Annotation")
   message("============================================================")
+  # --- ADDED: Skip logic ---
+  if (file.exists(file.path(output_dirs$singleR, "SingleR_hpca_summary.tsv")) &&
+      file.exists(file.path(output_dirs$singleR, "SingleR_bpe_summary.tsv"))) {
+    message("SingleR results already exist. Skipping calculation...")
+    return(NULL)
+  }
+  
   counts <- GetAssayData(Joined_TN.combined)
 
   # hpca database
@@ -220,6 +227,8 @@ plot_markers <- function(Joined_TN.combined) {
 
   # Process each marker set sequentially
   results <- lapply(names(marker_sets), function(cell_type) {
+
+
     markers <- marker_sets[[cell_type]]
     plot_title <- gsub("_", " ", cell_type)
 
@@ -253,6 +262,11 @@ run_celliD <- function(seurat_object) {
   message("\n============================================================")
   message("Starting CelliD Annotation")
   message("============================================================")
+
+  if (file.exists(file.path(output_dirs$celliD, "CelliD_PanglaoDB_summary.tsv"))) {
+    message("CelliD results already exist. Skipping calculation...")
+    return(NULL)
+  }
 
   # Step 1: Downsample the object to a manageable size to prevent memory errors.
   if (ncol(seurat_object) > 90000) {
@@ -336,6 +350,12 @@ run_scCATCH <- function(TN.combined, Joined_TN.combined) {
   message("Starting scCATCH Annotation")
   message("============================================================")
 
+  # --- ADDED: Skip logic ---
+  if (file.exists(file.path(output_dirs$scCATCH, "scCATCH_summary.tsv"))) {
+    message("scCATCH results already exist. Skipping calculation...")
+    return(NULL)
+  }
+
   # Get normalized data matrix
   data.input <- GetAssayData(Joined_TN.combined, assay = "RNA", layer = "data")
 
@@ -373,14 +393,22 @@ run_scCATCH <- function(TN.combined, Joined_TN.combined) {
   # Save results
   write.csv(obj@celltype, file = file.path(output_dirs$scCATCH, "scCATCH.csv"), row.names = FALSE)
 
-  # Process scCATCH output for consensus (similar to Cell_anno_consensus.pl)
+  # Process scCATCH output for consensus
   message("Processing scCATCH results for consensus...")
   data <- read.csv(file.path(output_dirs$scCATCH, "scCATCH.csv"), header = TRUE, stringsAsFactors = FALSE)
 
-  if (colnames(data)[1] == "") {
-    colnames(data)[1] <- "Empty"
+  # --- FIXED: Dynamic column mapping to avoid length mismatch errors ---
+  colnames(data) <- tolower(colnames(data))
+  
+  if ("cluster" %in% colnames(data)) data$Cluster <- data$cluster else data$Cluster <- data[[1]]
+  
+  if ("cell_type" %in% colnames(data)) {
+    data$Cell_Type <- data$cell_type
+  } else if ("celltype" %in% colnames(data)) {
+    data$Cell_Type <- data$celltype
+  } else {
+    data$Cell_Type <- data[[2]] # Fallback
   }
-  colnames(data) <- c("Empty", "Cluster", "Marker", "Cell_Type", "Score", "Related_Marker", "PMID")
 
   # Normalize cell types
   data$Cell_Type <- sapply(data$Cell_Type, normalize_cell_type)
@@ -402,6 +430,8 @@ run_scCATCH <- function(TN.combined, Joined_TN.combined) {
   message("============================================================\n")
   return(obj)
 }
+
+
 #-------------------------------------------scCATCH end-----------------------------------------------------------
 
 #-------------------------------------------Consensus Annotation---------------------------------------------------
