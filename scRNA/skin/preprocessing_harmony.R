@@ -403,11 +403,40 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     # ============ DOUBLET FINDER WORKFLOW  ============
     message("Starting DoubletFinder workflow...")
 
-    # Normalize / SCTransform, find variable features, scale data, run PCA
+    # ============ CELL CYCLE SCORING & NORMALIZATION ============
+    # 1. Quick LogNormalize strictly to calculate Cell Cycle scores
+    message("Running standard LogNormalize strictly for Cell Cycle Scoring...")
+    seur_obj <- NormalizeData(seur_obj, assay = "RNA", verbose = FALSE)
+    
+    # 2. Score Cell Cycle
+    if (exists("cc.genes") && length(cc.genes$s.genes) > 0 && length(cc.genes$g2m.genes) > 0) {
+      present_s <- intersect(cc.genes$s.genes, rownames(seur_obj))
+      present_g2m <- intersect(cc.genes$g2m.genes, rownames(seur_obj))
+      if (length(present_s) > 0 && length(present_g2m) > 0) {
+        message("Scoring Cell Cycle phases...")
+        seur_obj <- CellCycleScoring(seur_obj, s.features = present_s, g2m.features = present_g2m, set.ident = FALSE)
+      }
+    }
+
+    # 3. Normalize / SCTransform, find variable features, scale data, run PCA
     if (isTRUE(opt$use_sct)) {
-      message("Running per-sample SCTransform (regressing percent.mt)...")
-      # Keep RNA assay untouched; create SCT assay for downstream PCA/Harmony
-      seur_obj <- SCTransform(seur_obj, vars.to.regress = "percent.mt", verbose = FALSE)
+      # Determine what to regress based on whether CC scores were successfully added
+      vars_regress <- c("percent.mt")
+      if ("S.Score" %in% colnames(seur_obj@meta.data) && "G2M.Score" %in% colnames(seur_obj@meta.data)) {
+        vars_regress <- c("percent.mt", "S.Score", "G2M.Score")
+        message("Running SCTransform v2 + glmGamPoi (regressing percent.mt, S.Score, and G2M.Score)...")
+      } else {
+        message("Running SCTransform v2 + glmGamPoi (regressing percent.mt only)...")
+      }
+      
+      # Run the optimized SCTransform
+      seur_obj <- SCTransform(
+        seur_obj, 
+        vars.to.regress = vars_regress, 
+        method = "glmGamPoi", 
+        vst.flavor = "v2", 
+        verbose = FALSE
+      )
       seur_obj <- RunPCA(seur_obj, assay = "SCT", verbose = FALSE)
     } else {
       message("Running LogNormalize -> FindVariableFeatures -> ScaleData pipeline...")
@@ -673,10 +702,24 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
 
   message("\n==================== Starting Harmony Integration ====================")
 
+ # --- 1. Merge Samples (Required for Harmony) ---
+  message("Merging ", length(sample_list), " samples into a single object...")
+  
   # --- 1. Merge Samples (Required for Harmony) ---
   message("Merging ", length(sample_list), " samples into a single object...")
+  
+   # We will re-run SCTransform globally on the merged object (Best practice for Harmony).
+  sample_list <- lapply(sample_list, function(obj) {
+    DefaultAssay(obj) <- "RNA"
+    if ("SCT" %in% names(obj)) {
+      obj[["SCT"]] <- NULL
+    }
+    return(obj)
+  })
+
   if (length(sample_list) > 1) {
-    TN.combined <- merge(x = sample_list[[1]], y = sample_list[2:length(sample_list)])
+    TN.combined <- merge(x = sample_list[[1]], 
+                         y = sample_list[2:length(sample_list)])
   } else {
     TN.combined <- sample_list[[1]]
   }
@@ -709,26 +752,6 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
     stop("After attempted JoinLayers fallback, combined object is not a Seurat object. Aborting.")
   }
 
-  # Ensure basic RNA normalization exists for metadata computations (cell cycle)
-  if (!("RNA" %in% names(TN.combined))) {
-    DefaultAssay(TN.combined) <- "RNA"
-  }
-  # Normalize RNA (no effect if already normalized) so CellCycleScoring can compute S/G2M scores
-  TN.combined <- NormalizeData(TN.combined, assay = "RNA", verbose = FALSE)
-
-  # Cell cycle scoring: run only with cc.genes actually present in the merged object
-  if (exists("cc.genes") && length(cc.genes$s.genes) > 0 && length(cc.genes$g2m.genes) > 0) {
-    present_s <- intersect(cc.genes$s.genes, rownames(TN.combined))
-    present_g2m <- intersect(cc.genes$g2m.genes, rownames(TN.combined))
-    if (length(present_s) > 0 && length(present_g2m) > 0) {
-      message("Running CellCycleScoring with ", length(present_s), " S genes and ", length(present_g2m), " G2M genes (filtered to genes present in object)...")
-      TN.combined <- CellCycleScoring(TN.combined, s.features = present_s, g2m.features = present_g2m, set.ident = FALSE)
-    } else {
-      message("Skipping CellCycleScoring: none of the canonical cc.genes were found in the merged object.")
-    }
-  } else {
-    message("Skipping CellCycleScoring: 'cc.genes' not available or empty. S.Score/G2M.Score will not be present.")
-  }
 
   # --- 2. Global Normalization & Cell Cycle Scoring ---
   message("Preparing merged object for PCA/Harmony...")
@@ -747,13 +770,30 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
   message("Using metadata column 'batch' for Harmony grouping (derived from ", opt$batch_var, ")")
 
   if (isTRUE(opt$use_sct)) {
-    message("Assuming per-sample SCT was applied. Setting DefaultAssay to SCT for PCA/Harmony.")
-    DefaultAssay(TN.combined) <- "SCT"
-    # Ensure variable features exist for SCT; if not, run FindVariableFeatures on SCT
-    if (length(VariableFeatures(TN.combined)) == 0) {
-      TN.combined <- FindVariableFeatures(TN.combined, assay = "SCT", selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+    message("Running Global SCTransform v2 on the merged object (Best practice for Harmony)...")
+    
+    # Check if cell cycle scores merged successfully from the per-sample step
+    vars_regress <- c("percent.mt")
+    if ("S.Score" %in% colnames(TN.combined@meta.data) && "G2M.Score" %in% colnames(TN.combined@meta.data)) {
+      vars_regress <- c("percent.mt", "S.Score", "G2M.Score")
+      message("Regressing out percent.mt, S.Score, and G2M.Score...")
+    } else {
+      message("Regressing out percent.mt only...")
     }
-    message("Running PCA on SCT assay...")
+
+    TN.combined <- SCTransform(
+      TN.combined, 
+      assay = "RNA",
+      vars.to.regress = vars_regress, 
+      method = "glmGamPoi", 
+      vst.flavor = "v2", 
+      verbose = FALSE
+    )
+    
+    message("Preparing global SCT model for downstream differential expression...")
+    TN.combined <- PrepSCTFindMarkers(TN.combined, assay = "SCT", verbose = FALSE)
+
+    message("Running PCA on unified SCT assay...")
     TN.combined <- RunPCA(TN.combined, assay = "SCT", npcs = 50, verbose = FALSE)
     harmony_assay <- "SCT"
   } else {
@@ -892,6 +932,15 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
     
     TN.plotting <- RenameIdents(TN.combined, new_names)
     is_annotated <- TRUE
+    
+    # --- FIX: Mathematically sort the new factor levels ---
+    # Prevents R from alphabetically sorting "10: Cell" before "2: Cell"
+    current_levels <- levels(TN.plotting)
+    level_nums <- as.numeric(sub(":.*", "", current_levels))
+    sorted_levels <- current_levels[order(level_nums)]
+    Idents(TN.plotting) <- factor(Idents(TN.plotting), levels = sorted_levels)
+    # ------------------------------------------------------
+    
   } else {
     message("Consensus file not found. Using numeric cluster labels.")
   }
@@ -903,11 +952,20 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
     plot_colors <- colorRampPalette(mycolor)(n_groups)
   }
 
-  # Ensure DE / marker finding uses the non-integrated RNA assay
-  message("Preparing RNA assay for marker/DE calls (NormalizeData on RNA, DefaultAssay -> RNA)...")
-  DefaultAssay(TN.plotting) <- "RNA"
-  TN.plotting <- JoinLayers(TN.plotting)
-  TN.plotting <- NormalizeData(TN.plotting, assay = "RNA", verbose = FALSE)
+  # Dynamically prepare the correct assay for DE and visualization
+  if (isTRUE(opt$use_sct)) {
+    message("Preparing SCT assay for marker/DE calls (Running PrepSCTFindMarkers)...")
+    DefaultAssay(TN.plotting) <- "SCT"
+    # This recovers corrected counts across merged samples so logFC remains biologically interpretable
+    TN.plotting <- PrepSCTFindMarkers(TN.plotting, assay = "SCT", verbose = FALSE)
+    de_assay <- "SCT"
+  } else {
+    message("Preparing RNA assay for marker/DE calls (NormalizeData on RNA)...")
+    DefaultAssay(TN.plotting) <- "RNA"
+    TN.plotting <- JoinLayers(TN.plotting)
+    TN.plotting <- NormalizeData(TN.plotting, assay = "RNA", verbose = FALSE)
+    de_assay <- "RNA"
+  }
 
   # --- 2. UMAP Plots ---
   # Note: label.size set to 3 to accommodate longer text labels
@@ -951,7 +1009,7 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
     suppressWarnings(
       FindAllMarkers(
         Heatmapall,
-        assay = "RNA",
+        assay = de_assay,
         only.pos = TRUE,
         min.pct = 0.1,
         logfc.threshold = 0.25,
@@ -993,10 +1051,11 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
         message("No top marker genes identified after grouping. Skipping heatmap.")
       } else {
         message("Scaling data for heatmap features...")
-        Heatmapall <- ScaleData(Heatmapall, features = top_genes, verbose = FALSE)
+        # Make sure the object is scaled on the correct assay before plotting
+        DefaultAssay(Heatmapall) <- de_assay 
+        Heatmapall <- ScaleData(Heatmapall, features = top_genes, assay = de_assay, verbose = FALSE)
         
-        p_heat <- DoHeatmap(Heatmapall, features = top_genes, group.colors = plot_colors) +
-          scale_fill_gradient2(low = "magenta", mid = "black", high = "yellow", midpoint = 0, name = "Z-Score") + 
+        p_heat <- DoHeatmap(Heatmapall, features = top_genes, group.colors = plot_colors, assay = de_assay) +          scale_fill_gradient2(low = "magenta", mid = "black", high = "yellow", midpoint = 0, name = "Z-Score") + 
           ggtitle(paste("Top 10 Markers per Cluster (Resolution:", chosen_res, ")")) +
           theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"))
           
@@ -1214,13 +1273,21 @@ create_summary_dot_plot <- function(TN.combined, output_plots_dir, top_n = 5) {
   }
 
   # If markers not loaded, compute them (may be slow)
+  # If markers not loaded, compute them (may be slow)
   if (is.null(markers)) {
     message("Computing FindAllMarkers (may take a while)...")
     tryCatch({
-      # Use RNA assay for marker finding
-      DefaultAssay(TN.combined) <- "RNA"
-      TN.combined <- JoinLayers(TN.combined)
-      markers <- FindAllMarkers(TN.combined, assay = "RNA", only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, verbose = FALSE)
+      if (isTRUE(opt$use_sct)) {
+        DefaultAssay(TN.combined) <- "SCT"
+        TN.combined <- PrepSCTFindMarkers(TN.combined, assay = "SCT", verbose = FALSE)
+        de_assay <- "SCT"
+      } else {
+        DefaultAssay(TN.combined) <- "RNA"
+        TN.combined <- JoinLayers(TN.combined)
+        de_assay <- "RNA"
+      }
+      
+      markers <- FindAllMarkers(TN.combined, assay = de_assay, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, verbose = FALSE)
       write.csv(markers, file = markers_file, row.names = FALSE)
       message("Saved FindAllMarkers to ", markers_file)
     }, error = function(e) {
@@ -1247,11 +1314,12 @@ create_summary_dot_plot <- function(TN.combined, output_plots_dir, top_n = 5) {
     return(invisible(NULL))
   }
 
-  # Ensure RNA assay is active for DotPlot
-  DefaultAssay(TN.combined) <- "RNA"
+  # Ensure the correct assay is active for DotPlot
+  plot_assay <- if (isTRUE(opt$use_sct)) "SCT" else "RNA"
+  DefaultAssay(TN.combined) <- plot_assay
 
   p_dot <- tryCatch({
-    DotPlot(TN.combined, features = top_genes, assay = "RNA") +
+    DotPlot(TN.combined, features = top_genes, assay = plot_assay) +
       ggtitle(paste0("Top ", top_n, " markers per cluster (DotPlot)")) +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
   }, error = function(e) {
