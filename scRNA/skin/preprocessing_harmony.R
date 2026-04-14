@@ -12,6 +12,7 @@
 # Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task3.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+PMH -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+PMH
 # Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task4.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+HS -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+HS
 #Rscript /home/johan/pipeline/scRNA/skin/preprocessing.R -f /home/johan/pipeline/scRNA/skin/input_side_task5.csv -d /mnt/80T/pipeline/single_cell/side_task/HC+DF+DFonly1 -s all -o /home/johan/output/skin_pmh/side_task/HC+DF+DFonly1
+# Rscript /home/johan/pipeline/scRNA/skin/preprocessing_harmony.R -f /home/johan/pipeline/scRNA/skin/input.csv -d /home/johan/data/PMH_scRNA-seq -o /home/johan/output/skin_pmh_harmony_sctransform2/ -s all -r 0.2
 
 
 Sys.time()
@@ -43,6 +44,9 @@ suppressPackageStartupMessages({
   library(harmony)  
   library(clustree)
 })
+
+
+set.seed(42)
 
 # Ensure cc.genes is available (used for CellCycleScoring). Try to load from Seurat data; provide safe fallback.
 if (!exists("cc.genes")) {
@@ -163,6 +167,7 @@ option_list <- list(
 
 parser <- OptionParser(option_list = option_list)
 opt <- parse_args(parser)
+res_folder <- opt$resolution
 
 # Provide a sensible default output base and directories
 output_base <- "output"
@@ -400,70 +405,44 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
       }
     })
 
-    # ============ DOUBLET FINDER WORKFLOW  ============
+    # ============ NORMALIZATION & DIM REDUCTION ============
     message("Starting DoubletFinder workflow...")
 
-    # ============ CELL CYCLE SCORING & NORMALIZATION ============
-    # 1. Quick LogNormalize strictly to calculate Cell Cycle scores
-    message("Running standard LogNormalize strictly for Cell Cycle Scoring...")
-    seur_obj <- NormalizeData(seur_obj, assay = "RNA", verbose = FALSE)
-    
-    # 2. Score Cell Cycle
-    if (exists("cc.genes") && length(cc.genes$s.genes) > 0 && length(cc.genes$g2m.genes) > 0) {
-      present_s <- intersect(cc.genes$s.genes, rownames(seur_obj))
-      present_g2m <- intersect(cc.genes$g2m.genes, rownames(seur_obj))
-      if (length(present_s) > 0 && length(present_g2m) > 0) {
-        message("Scoring Cell Cycle phases...")
-        seur_obj <- CellCycleScoring(seur_obj, s.features = present_s, g2m.features = present_g2m, set.ident = FALSE)
-      }
-    }
-
-    # 3. Normalize / SCTransform, find variable features, scale data, run PCA
     if (isTRUE(opt$use_sct)) {
-      # Determine what to regress based on whether CC scores were successfully added
-      vars_regress <- c("percent.mt")
-      if ("S.Score" %in% colnames(seur_obj@meta.data) && "G2M.Score" %in% colnames(seur_obj@meta.data)) {
-        vars_regress <- c("percent.mt", "S.Score", "G2M.Score")
-        message("Running SCTransform v2 + glmGamPoi (regressing percent.mt, S.Score, and G2M.Score)...")
-      } else {
-        message("Running SCTransform v2 + glmGamPoi (regressing percent.mt only)...")
-      }
-      
-      # Run the optimized SCTransform
+      message("Running SCTransform v2 + glmGamPoi (regressing percent.mt only)...")
       seur_obj <- SCTransform(
         seur_obj, 
-        vars.to.regress = vars_regress, 
+        vars.to.regress = "percent.mt", 
         method = "glmGamPoi", 
         vst.flavor = "v2", 
         verbose = FALSE
       )
-      seur_obj <- RunPCA(seur_obj, assay = "SCT", verbose = FALSE)
+      seur_obj <- RunPCA(seur_obj, assay = "SCT", npcs = 30, verbose = FALSE)
     } else {
       message("Running LogNormalize -> FindVariableFeatures -> ScaleData pipeline...")
       seur_obj <- seur_obj %>%
         NormalizeData() %>%
         FindVariableFeatures() %>%
-        ScaleData() %>%
-        RunPCA()
+        ScaleData(vars.to.regress = "percent.mt") %>%
+        RunPCA(npcs = 30, verbose = FALSE)
     }
 
     # Plot elbow plot
-    safe_save_plot(ElbowPlot(seur_obj),
+    safe_save_plot(ElbowPlot(seur_obj, ndims = 30),
                   file.path(sample_plot_dir, paste0(sample_id, "_03_elbow")))
 
     # Find neighbors and clusters (needed for DoubletFinder)
-    # Use PCA computed on whichever assay was used
     seur_obj <- seur_obj %>%
-      FindNeighbors(dims = 1:50) %>%
+      FindNeighbors(dims = 1:30) %>%
       FindClusters() %>%
-      # Explicitly use the R-native UWOT implementation to avoid reticulate/umap-learn warnings
       RunUMAP(dims = 1:30, umap.method = "uwot", metric = "cosine")
 
     # Plot initial UMAP
     safe_save_plot(DimPlot(seur_obj, reduction = "umap", label = TRUE),
                   file.path(sample_plot_dir, paste0(sample_id, "_04_umap_initial")))
 
-    # pK Identification (no ground-truth) - optimal parameter for DoubletFinder
+    # ============ DOUBLET FINDER ============
+    # pK Identification (no ground-truth)
     message("Identifying optimal pK parameter...")
     sweep.res.list <- paramSweep(seur_obj, PCs = 1:20, sct = isTRUE(opt$use_sct))
     sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
@@ -483,7 +462,7 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     # Homotypic Doublet Proportion Estimate
     annotations <- seur_obj@meta.data$seurat_clusters
     homotypic.prop <- modelHomotypic(annotations)
-    nExp_poi <- round(opt$doublet_rate * nrow(seur_obj@meta.data))  # Use configurable doublet rate
+    nExp_poi <- round(opt$doublet_rate * nrow(seur_obj@meta.data)) 
     nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
     message("Expected doublets: ", nExp_poi, " (adjusted: ", nExp_poi.adj, ")")
 
@@ -492,7 +471,6 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     seur_obj <- doubletFinder(seur_obj, PCs = 1:20, pN = 0.25, pK = pK,
                               nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = isTRUE(opt$use_sct))
 
-    # Dynamic column detection (critical fix from previous version)
     DF_cols <- grep("DF.classifications", colnames(seur_obj@meta.data), value = TRUE)
 
     if (length(DF_cols) == 0) {
@@ -602,7 +580,6 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     })
 
     # Save processed object
-    # Record whether this sample was processed with SCTransform for later consistency checks
     tryCatch({
       seur_obj@misc$processed_with_sct <- isTRUE(opt$use_sct)
     }, error = function(e) {
@@ -612,13 +589,11 @@ process_sample <- function(sample_name, sample_ident1, sample_ident2, base_data_
     message("Processed object saved: ", output_rds)
     message("==================== Completed: ", sample_name, " ====================\n")
 
-    # Return the file path instead of the object to avoid serialization issues in parallel
     return(output_rds)
 
   }, error = function(e) {
-    # If anything fails inside this function, catch it here so the other parallel workers don't die
     message("\nCRITICAL ERROR processing sample ", sample_name, ": ", e$message)
-    return(NULL) # Return NULL to indicate failure
+    return(NULL) 
   })
 }
 
@@ -704,11 +679,8 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
 
  # --- 1. Merge Samples (Required for Harmony) ---
   message("Merging ", length(sample_list), " samples into a single object...")
-  
-  # --- 1. Merge Samples (Required for Harmony) ---
-  message("Merging ", length(sample_list), " samples into a single object...")
-  
-   # We will re-run SCTransform globally on the merged object (Best practice for Harmony).
+
+ # We will re-run SCTransform globally on the merged object (Best practice for Harmony).
   sample_list <- lapply(sample_list, function(obj) {
     DefaultAssay(obj) <- "RNA"
     if ("SCT" %in% names(obj)) {
@@ -752,10 +724,45 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
     stop("After attempted JoinLayers fallback, combined object is not a Seurat object. Aborting.")
   }
 
+  # =========================================================================
+  # --- CRITICAL FIX: Add Cell Cycle Scoring back to the merged object safely ---
+  # =========================================================================
+  message("Preparing merged object for Cell Cycle Scoring...")
+  
+  # Ensure basic RNA assay is active for normalization
+  DefaultAssay(TN.combined) <- "RNA"
+  
+  # Normalize RNA (Required before CellCycleScoring can compute S/G2M scores)
+  tryCatch({
+    TN.combined <- NormalizeData(TN.combined, assay = "RNA", verbose = FALSE)
+  }, error = function(e) {
+    message("Warning: NormalizeData failed (skipping): ", conditionMessage(e))
+  })
+
+  # Cell cycle scoring: run safely only if genes are present
+  if (exists("cc.genes") && length(cc.genes$s.genes) > 0 && length(cc.genes$g2m.genes) > 0) {
+    present_s <- intersect(cc.genes$s.genes, rownames(TN.combined))
+    present_g2m <- intersect(cc.genes$g2m.genes, rownames(TN.combined))
+    
+    if (length(present_s) > 0 && length(present_g2m) > 0) {
+      message("Running CellCycleScoring with ", length(present_s), " S genes and ", length(present_g2m), " G2M genes...")
+      tryCatch({
+        TN.combined <- CellCycleScoring(TN.combined, s.features = present_s, g2m.features = present_g2m, set.ident = FALSE)
+        message("Successfully added S.Score and G2M.Score to merged object.")
+      }, error = function(e) {
+         message("Warning: CellCycleScoring failed on merged object (skipping): ", conditionMessage(e))
+      })
+    } else {
+      message("Skipping CellCycleScoring: canonical cc.genes were not found in the merged object.")
+    }
+  } else {
+    message("Skipping CellCycleScoring: 'cc.genes' list is not available in the environment.")
+  }
+  # =========================================================================
 
   # --- 2. Global Normalization & Cell Cycle Scoring ---
   message("Preparing merged object for PCA/Harmony...")
-
+  
   # Create an explicit batch column from the requested metadata (safer for Harmony)
   if (!(opt$batch_var %in% colnames(TN.combined@meta.data))) {
     message("Warning: requested batch_var '", opt$batch_var, "' not found in meta.data; falling back to orig.ident2 if present.")
@@ -800,7 +807,7 @@ integrate_samples <- function(sample_list, chosen_res = 0.4) {
     message("Running global LogNormalize/ScaleData on merged RNA assay (no per-sample SCT requested).")
     TN.combined <- NormalizeData(TN.combined, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE)
     TN.combined <- FindVariableFeatures(TN.combined, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
-    TN.combined <- ScaleData(TN.combined, vars.to.regress = c("S.Score", "G2M.Score", "percent.mt"), features = rownames(TN.combined), verbose = TRUE)
+    TN.combined <- ScaleData(TN.combined, vars.to.regress = c("percent.mt"), features = rownames(TN.combined), verbose = TRUE)
     TN.combined <- RunPCA(TN.combined, npcs = 50, verbose = FALSE)
     harmony_assay <- "RNA"
   }
@@ -883,8 +890,14 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
 
   # --- 2. Attempt to Apply Annotations ---
   # Look for the consensus file in the standard location relative to output_base
-  consensus_file <- file.path(output_base, "annotations","consensus", "consensus_annotation.tsv")
-  
+  consensus_file <- file.path(
+  output_base,
+  "annotations",
+  paste0("res_", res_folder),
+  "consensus",
+  "consensus_annotation.tsv"
+  )
+
   if (!file.exists(consensus_file) && !is.null(opt$output)) {
      consensus_file <- file.path(opt$output, "annotations", "consensus", "consensus_annotation.tsv")
   }
@@ -952,20 +965,17 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
     plot_colors <- colorRampPalette(mycolor)(n_groups)
   }
 
-  # Dynamically prepare the correct assay for DE and visualization
-  if (isTRUE(opt$use_sct)) {
-    message("Preparing SCT assay for marker/DE calls (Running PrepSCTFindMarkers)...")
-    DefaultAssay(TN.plotting) <- "SCT"
-    # This recovers corrected counts across merged samples so logFC remains biologically interpretable
-    TN.plotting <- PrepSCTFindMarkers(TN.plotting, assay = "SCT", verbose = FALSE)
-    de_assay <- "SCT"
-  } else {
-    message("Preparing RNA assay for marker/DE calls (NormalizeData on RNA)...")
-    DefaultAssay(TN.plotting) <- "RNA"
-    TN.plotting <- JoinLayers(TN.plotting)
-    TN.plotting <- NormalizeData(TN.plotting, assay = "RNA", verbose = FALSE)
-    de_assay <- "RNA"
-  }
+  # --- FIX: Force 'RNA' assay (LogNormalize) for DE and visualization ---
+  message("Preparing RNA assay for marker/DE calls (NormalizeData on RNA)...")
+  DefaultAssay(TN.plotting) <- "RNA"
+  
+  # Attempt JoinLayers for Seurat v5 compatibility
+  try({ TN.plotting <- JoinLayers(TN.plotting) }, silent = TRUE)
+  
+  # Force standard LogNormalize for visualization and marker detection
+  TN.plotting <- NormalizeData(TN.plotting, assay = "RNA", normalization.method = "LogNormalize", verbose = FALSE)
+  de_assay <- "RNA"
+  # ----------------------------------------------------------------------
 
   # --- 2. UMAP Plots ---
   # Note: label.size set to 3 to accommodate longer text labels
@@ -1277,17 +1287,14 @@ create_summary_dot_plot <- function(TN.combined, output_plots_dir, top_n = 5) {
   if (is.null(markers)) {
     message("Computing FindAllMarkers (may take a while)...")
     tryCatch({
-      if (isTRUE(opt$use_sct)) {
-        DefaultAssay(TN.combined) <- "SCT"
-        TN.combined <- PrepSCTFindMarkers(TN.combined, assay = "SCT", verbose = FALSE)
-        de_assay <- "SCT"
-      } else {
-        DefaultAssay(TN.combined) <- "RNA"
-        TN.combined <- JoinLayers(TN.combined)
-        de_assay <- "RNA"
-      }
+      # --- FIX: Force 'RNA' assay for fallback marker computation ---
+      DefaultAssay(TN.combined) <- "RNA"
+      try({ TN.combined <- JoinLayers(TN.combined) }, silent = TRUE)
+      TN.combined <- NormalizeData(TN.combined, assay = "RNA", normalization.method = "LogNormalize", verbose = FALSE)
+      de_assay <- "RNA"
       
       markers <- FindAllMarkers(TN.combined, assay = de_assay, only.pos = TRUE, min.pct = 0.1, logfc.threshold = 0.25, verbose = FALSE)
+
       write.csv(markers, file = markers_file, row.names = FALSE)
       message("Saved FindAllMarkers to ", markers_file)
     }, error = function(e) {
@@ -1314,8 +1321,7 @@ create_summary_dot_plot <- function(TN.combined, output_plots_dir, top_n = 5) {
     return(invisible(NULL))
   }
 
-  # Ensure the correct assay is active for DotPlot
-  plot_assay <- if (isTRUE(opt$use_sct)) "SCT" else "RNA"
+  plot_assay <- "RNA"
   DefaultAssay(TN.combined) <- plot_assay
 
   p_dot <- tryCatch({
@@ -1417,6 +1423,17 @@ execute_step <- function(step) {
     },
     plot = {
       TN_combined <- readRDS(file.path(output_base, "TN.combined_dim30.rds"))
+      
+      # --- NEW: Dynamically update output directories for specific resolutions ---
+      res_folder <- paste0("res_", opt$resolution)
+      output_dirs$plots <<- file.path(output_base, "plots", res_folder)
+      output_dirs$tables <<- file.path(output_base, "tables", res_folder)
+      
+      # Create the new resolution-specific directories
+      dir.create(output_dirs$plots, recursive = TRUE, showWarnings = FALSE)
+      dir.create(output_dirs$tables, recursive = TRUE, showWarnings = FALSE)
+      # -------------------------------------------------------------------------
+
       generate_plots(TN_combined, chosen_res = opt$resolution)
       run_and_plot_pca(TN_combined, output_dirs$plots)
       create_summary_dot_plot(TN_combined, output_dirs$plots)

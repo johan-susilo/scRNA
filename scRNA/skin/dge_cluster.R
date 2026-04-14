@@ -1,147 +1,196 @@
 library(Seurat)
 library(dplyr)
 library(ggplot2)
-library(ggrepel) # Required for the volcano plot labels
+library(DESeq2)
+library(tidyr)
+library(ggrepel)
+library(stringr)
 
-run_fibroblast_dge <- function(seurat_obj, ident.1, ident.2, output_prefix, out_dir, min.pct = 0.1, logfc.threshold = 0.25) {
+# ==============================================================================
+# 1. Define the Pseudobulk Function for Sub-clusters
+# ==============================================================================
+run_subcluster_dge <- function(subcluster_id, cell_type, base_out_dir, counts_mat, cells_per_pb, min_cells = 10, min_reps = 2) {
   
-  print(paste("Running DGE for:", output_prefix))
+  message(paste("\n  -> Evaluating", cell_type, "Sub-cluster:", subcluster_id))
   
-  # 1. Run FindMarkers
-  markers <- FindMarkers(
-    seurat_obj,
-    ident.1 = ident.1,
-    ident.2 = ident.2,
-    min.pct = min.pct,
-    logfc.threshold = logfc.threshold
+  # Setup directory
+  out_dir <- file.path(base_out_dir, paste0("subcluster_", subcluster_id))
+  
+  # === Select Specific Sub-cluster Columns ===
+  all_cols <- colnames(counts_mat)
+  
+  # Extract the cluster number from the pseudobulk column names safely
+  cluster_prefixes <- str_extract(all_cols, "^[^_]+")
+  cluster_numbers <- str_remove_all(cluster_prefixes, "[a-zA-Z]")
+  target_cols <- all_cols[cluster_numbers == as.character(subcluster_id)]
+  
+  if (length(target_cols) == 0) {
+    message(paste("    - SKIPPING: No pseudobulk columns found for Sub-cluster", subcluster_id))
+    return(NULL)
+  }
+
+  # === SAFEGUARD 1: Filter Low-Cell Pseudobulk Samples ===
+  # THE FIX: Strip the "g" from target_cols to match our dictionary keys
+  pb_counts <- sapply(target_cols, function(col_name) {
+    # Remove any letters at the start (e.g., "g0" becomes "0")
+    clean_name <- stringr::str_remove(col_name, "^[a-zA-Z]+")
+    
+    if (clean_name %in% names(cells_per_pb)) {
+      return(as.numeric(cells_per_pb[clean_name]))
+    } else {
+      return(0)
+    }
+  })
+  
+  valid_cols <- target_cols[pb_counts >= min_cells]
+  dropped_cols <- setdiff(target_cols, valid_cols)
+  
+  if (length(dropped_cols) > 0) {
+    message(paste("    - Dropped", length(dropped_cols), "sample(s) for having <", min_cells, "cells."))
+  }
+  
+  if (length(valid_cols) == 0) {
+    message("    - SKIPPING: No valid samples left after cell count filtering.")
+    return(NULL)
+  }
+  
+  counts_subset <- counts_mat[, valid_cols, drop = FALSE]
+  
+  # === Create Metadata ===
+  meta <- data.frame(pseudobulk_id = valid_cols) %>%
+    mutate(
+      cluster = str_extract(pseudobulk_id, "^[^_]+"),
+      condition = str_extract(pseudobulk_id, "[^_]+$"),
+      sample_id = str_replace(pseudobulk_id, paste0("^", cluster, "_"), ""),
+      sample_id = str_replace(sample_id, paste0("_", condition, "$"), "")
+    )
+  rownames(meta) <- meta$pseudobulk_id
+  meta$condition <- factor(meta$condition, levels = c("Healthy", "PMH"))
+  
+  # === SAFEGUARD 2: Strict Biological Replicate Check ===
+  pmh_count <- sum(meta$condition == "PMH")
+  healthy_count <- sum(meta$condition == "Healthy")
+  
+  if (pmh_count < min_reps | healthy_count < min_reps) {
+    message(paste("    - SKIPPING: Insufficient replicates. PMH:", pmh_count, "| Healthy:", healthy_count, "(Requires", min_reps, "each)"))
+    return(NULL)
+  }
+  
+  message(paste("    - Proceeding with DGE. Replicates -> PMH:", pmh_count, "| Healthy:", healthy_count))
+  if (!dir.exists(out_dir)) { dir.create(out_dir, recursive = TRUE) }
+  
+  # === DESeq2 Pipeline ===
+  dds <- DESeqDataSetFromMatrix(
+    countData = counts_subset,
+    colData = meta,
+    design = ~ condition
   )
   
-  # 2. Format the dataframe
-  markers$gene <- rownames(markers)
-  markers <- markers[, c("gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")]
+  dds <- DESeq(dds, quiet = TRUE)
+  res <- results(dds, contrast = c("condition", "PMH", "Healthy"))
   
-  # 3. Add significance column
-  markers <- markers %>%
+  # === Formatting and Saving Results ===
+  res_df <- as.data.frame(res) %>% 
+    filter(!is.na(padj)) %>% 
+    mutate(gene = rownames(.)) %>%
     mutate(
       significance = case_when(
-        p_val_adj < 0.05 & avg_log2FC > 1 ~ "Upregulated",
-        p_val_adj < 0.05 & avg_log2FC < -1 ~ "Downregulated",
+        padj < 0.05 & log2FoldChange > 1 ~ "Upregulated in PMH",
+        padj < 0.05 & log2FoldChange < -1 ~ "Downregulated in PMH",
         TRUE ~ "Not Significant"
       )
-    ) 
+    ) %>%
+    select(gene, everything()) %>%
+    arrange(padj)
   
-  # 4. Save the CSV
-  csv_path <- file.path(out_dir, paste0(output_prefix, ".csv"))
-  write.csv(markers, csv_path, row.names = FALSE)
+  write.csv(res_df, file.path(out_dir, paste0("deseq2_", cell_type, "_subcluster_", subcluster_id, ".csv")), row.names = FALSE)
   
-  # 5. Handle p-values of 0 for plotting
-  markers_plot <- markers %>%
-    mutate(
-      p_val_adj = ifelse(p_val_adj == 0, .Machine$double.xmin, p_val_adj),
-      negLog10P = -log10(p_val_adj)
-    )
+  # === Visualization ===
+  top_genes <- res_df %>%
+    filter(significance != "Not Significant") %>% 
+    group_by(significance) %>% 
+    arrange(padj) %>% 
+    slice_head(n = 15) %>% 
+    ungroup() 
   
-  # 6. Get top genes for the volcano plot labels
-  top_genes <- markers_plot %>%
-    filter(significance != "Not Significant") %>%
-    group_by(significance) %>%
-    arrange(p_val_adj) %>%
-    slice_head(n = 10) %>%
-    ungroup()
-  
-  # 7. Create and save the Volcano plot
-  volcano_plot <- ggplot(markers_plot, aes(x = avg_log2FC, y = negLog10P, color = significance)) +
+  # Volcano plot
+  volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = significance)) +
     geom_point(alpha = 0.6, size = 1.5) +
-    geom_text_repel(data = top_genes, aes(label = gene), size = 3) +
-    scale_color_manual(values = c("Upregulated" = "red", "Downregulated" = "blue", "Not Significant" = "grey")) +
+    geom_text_repel(data = top_genes, 
+                    aes(label = gene), 
+                    color = "black", 
+                    box.padding = 0.5, 
+                    max.overlaps = Inf) +
+    scale_color_manual(values = c("Upregulated in PMH" = "red", 
+                                  "Downregulated in PMH" = "blue", 
+                                  "Not Significant" = "grey80")) +
     theme_minimal() +
-    labs(title = paste("Volcano Plot:", output_prefix),
-         x = "Log2 Fold Change",
-         y = "-log10 Adjusted p-value") +
-    geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black") +  
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") 
+    labs(title = paste(tools::toTitleCase(cell_type), "Sub-cluster", subcluster_id, "(PMH vs Healthy)"))
   
-  pdf_path <- file.path(out_dir, paste0(output_prefix, "_volcano.pdf"))
-  pdf(pdf_path, width = 7, height = 5)
-  print(volcano_plot)
-  dev.off()
+  ggsave(filename = file.path(out_dir, paste0("volcano_plot_subcluster_", subcluster_id, ".png")),
+         plot = volcano_plot, width = 6, height = 5)
   
-  print(paste("Finished! Files saved to:", out_dir))
-  
-  # Return the dataframe so you can keep it in your R environment if needed
-  return(markers)
+  return(res_df)
 }
 
-pmh_obj <- readRDS("/home/johan/output/skin_pmh/TN.combined_dim30.rds")
+# ==============================================================================
+# 2. Automated Execution Loop (The Auto-Discovery Block)
+# ==============================================================================
 
-pmh_obj$condition <- ifelse(
-  grepl("HTY|UA", pmh_obj$orig.ident2, ignore.case = TRUE),
-  "Healthy",
-  "PMH"
-)
+base_subset_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster"
 
-# Setup directories and object
-out_dir <- "/home/johan/output/skin_pmh/dge/fibroblast"
-out_dir_krt <- "/home/johan/output/skin_pmh/dge/keratinocyte"
-if (!dir.exists(out_dir_krt)) { dir.create(out_dir_krt, recursive = TRUE) }
+# Auto-discover all folders inside the subset directory
+cell_type_folders <- list.dirs(base_subset_dir, recursive = FALSE, full.names = FALSE)
 
-# Assuming pmh_obj is already loaded and identities are set to "seurat_clusters"
-Idents(pmh_obj) <- "seurat_clusters"
+message(paste("Found", length(cell_type_folders), "cell type folders to process:", paste(cell_type_folders, collapse = ", ")))
 
-# 1. Run for all combined conditions
-fibro_all <- run_fibroblast_dge(
-  seurat_obj = pmh_obj, 
-  ident.1 = "1", 
-  ident.2 = c("5","7","10"), 
-  output_prefix = "fibroblast_markers_cluster1_vs_5_7_10",
-  out_dir = out_dir
-)
+for (cell_type in cell_type_folders) {
+  
+  message("\n==================================================================")
+  message(paste("=== Starting Statistically-Clean DGE for:", toupper(cell_type), "==="))
+  message("==================================================================")
+  
+  rds_path <- file.path(base_subset_dir, cell_type, "processed", paste0(cell_type, "_subset_processed.rds"))
+  
+  if (!file.exists(rds_path)) {
+    message(paste("WARNING: Could not find RDS file at", rds_path, "- Skipping", cell_type))
+    next
+  }
+  
+  sub_obj <- readRDS(rds_path)
+  sub_obj$Condition <- factor(sub_obj$Condition, levels = c("Healthy", "PMH"))
+  
+  # --- THE FIX: Create the exact same string that AggregateExpression uses, NO make.names() ---
+  sub_obj$pb_id <- paste(sub_obj$seurat_clusters, sub_obj$orig.ident2, sub_obj$Condition, sep = "_")
+  cells_per_pb <- table(sub_obj$pb_id)
+  
+  # AggregateExpression on SUB-CLUSTERS
+  message(paste("Aggregating expression for", cell_type, "sub-clusters..."))
+  pb_list <- AggregateExpression(
+    sub_obj, 
+    assays = "RNA", 
+    slot = "counts",
+    group.by = c("seurat_clusters", "orig.ident2", "Condition"),
+    return.seurat = FALSE 
+  )
+  counts_matrix <- pb_list$RNA
+  
+  cell_type_dge_dir <- file.path(base_subset_dir, cell_type, "dge_pseudobulk")
+  available_subclusters <- levels(sub_obj$seurat_clusters)
+  
+  for (sub_id in available_subclusters) {
+    run_subcluster_dge(
+      subcluster_id = sub_id, 
+      cell_type = cell_type,
+      base_out_dir = cell_type_dge_dir, 
+      counts_mat = counts_matrix,
+      cells_per_pb = cells_per_pb, # Pass the exactly matched cell counts
+      min_cells = 5,              # Minimum cells a donor needs to be included
+      min_reps = 2                 # Ensures at least 2 Healthy and 2 PMH donors remain
+    )
+  }
+}
 
-# 2. Run for only the PMH condition
-pmh_subset <- subset(pmh_obj, subset = condition == "PMH")
-fibro_pmh <- run_fibroblast_dge(
-  seurat_obj = pmh_subset, 
-  ident.1 = "1", 
-  ident.2 = c("5","7","10"), 
-  output_prefix = "fibroblast_PMH_cluster1_vs_5_7_10",
-  out_dir = out_dir
-)
-
-# 3. Run for only the Healthy condition (Bonus!)
-healthy_subset <- subset(pmh_obj, subset = condition == "Healthy")
-fibro_healthy <- run_fibroblast_dge(
-  seurat_obj = healthy_subset, 
-  ident.1 = "1", 
-  ident.2 = c("5","7","10"), 
-  output_prefix = "fibroblast_Healthy_cluster1_vs_5_7_10",
-  out_dir = out_dir
-)
-
-# 1. Run for all combined conditions
-krt_all <- run_fibroblast_dge(
-  seurat_obj = pmh_obj, 
-  ident.1 = "11", 
-  ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_markers_cluster11_vs_0_2_8",
-  out_dir = out_dir_krt
-)
-
-# 2. Run for only the PMH condition
-pmh_subset <- subset(pmh_obj, subset = condition == "PMH")
-krt_pmh <- run_fibroblast_dge(
-  seurat_obj = pmh_subset, 
-  ident.1 = "11", 
-  ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_PMH_cluster11_vs_0_2_8",
-  out_dir = out_dir_krt
-)
-
-# 3. Run for only the Healthy condition (Bonus!)
-healthy_subset <- subset(pmh_obj, subset = condition == "Healthy")
-krt_healthy <- run_fibroblast_dge(
-  seurat_obj = healthy_subset, 
-  ident.1 = "11", 
-  ident.2 = c("0","2","8"), 
-  output_prefix = "keratinocyte_Healthy_cluster11_vs_0_2_8",
-  out_dir = out_dir_krt
-)
+message("\n==================================================================")
+message("=== All Statistically-Cleaned DGE pipelines executed! ===")
+message("==================================================================")

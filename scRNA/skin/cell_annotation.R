@@ -3,7 +3,8 @@
 # Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s scCATCH 
 # Example: Rscript ./cell_annotation.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -s all -o /home/johan/output/skin_pmh/annotations --consensus
 # Example: Rscript ./cell_annotation.R -r TN.combined_dim30.rds -s singleR,scCATCH -c 2
-# Example: Rscript ./cell_annotation.R -r TN.combined_dim30.rds -s all --consensus
+# Example: Rscript /home/johan/pipeline/scRNA/skin/cell_annotation.R  -i /home/johan/output/skin_pmh_harmony_test/TN.combined_dim30.rds -s all -o /home/johan/output/skin_pmh_harmony_test/ --consensus -r 0.3
+# Example: Rscript /home/johan/pipeline/scRNA/skin/cell_annotation.R -i /home/johan/output/skin_pmh_harmony_test/TN.combined_dim30.rds -s all -o /home/johan/output/skin_pmh_harmony_sctransform/annotations --consensus -r 0.3
 
 Sys.time()
 
@@ -24,7 +25,7 @@ suppressPackageStartupMessages({
 
 # Command-line Interface ----------------------------------------------------
 option_list <- list(
-  make_option(c("-r", "--rds"), type = "character", default = NULL,
+  make_option(c("-i", "--rds"), type = "character", default = NULL,
               help = "Path to RDS file (TN.combined_dim30.rds)"),
   make_option(c("-s", "--step"), type = "character", default = "all",
               help = "Pipeline step: read_rds, singleR, markers, celliD, scCATCH, consensus, annotated_plots, combined_plots, all"),
@@ -35,14 +36,19 @@ option_list <- list(
   make_option(c("--consensus"), action = "store_true", default = FALSE,
               help = "Generate consensus annotations from all methods"),
   make_option(c("--tissue"), type = "character", default = "skin",
-              help = "Tissue type for scCATCH [default: skin]")
+              help = "Tissue type for scCATCH [default: skin]"),
+  make_option(c("-r", "--resolution"), type = "character", default = "0.2",
+              help = "Clustering resolution to use for annotation [default: 0.2]")
 )
 
 parser <- OptionParser(option_list = option_list)
 opt <- parse_args(parser)
 
-# Use provided output path and create directories
-output_base <- opt$output
+# --- NEW: Append the resolution to the base output path ---
+res_folder <- paste0("res_", opt$res)
+output_base <- file.path(opt$output, res_folder)
+# ----------------------------------------------------------
+
 dir.create(output_base, recursive = TRUE, showWarnings = FALSE)
 
 output_dirs <- list(
@@ -114,11 +120,29 @@ normalize_cell_type <- function(cell_type) {
 }
 
 # Pipeline Functions --------------------------------------------------------
+# Pipeline Functions --------------------------------------------------------
 read_rds <- function(rds_path) {
   message("============================================================")
   message("Reading RDS file: ", rds_path)
   message("============================================================")
   TN.combined <- readRDS(file = rds_path)
+  
+  # --- NEW: Switch active identity to the requested resolution ---
+  md_cols <- colnames(TN.combined@meta.data)
+  res_col_sct <- paste0("SCT_snn_res.", opt$res)
+  res_col_rna <- paste0("RNA_snn_res.", opt$res)
+  
+  if (res_col_sct %in% md_cols) {
+    Idents(TN.combined) <- res_col_sct
+    message("Successfully switched active identity to: ", res_col_sct)
+  } else if (res_col_rna %in% md_cols) {
+    Idents(TN.combined) <- res_col_rna
+    message("Successfully switched active identity to: ", res_col_rna)
+  } else {
+    message("WARNING: Resolution column for ", opt$res, " not found in object! Using default clusters.")
+  }
+  # -------------------------------------------------------------
+  
   DefaultAssay(TN.combined) <- "RNA"
   Joined_TN.combined <- JoinLayers(TN.combined)
   message("Done reading RDS")

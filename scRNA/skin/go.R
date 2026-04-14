@@ -1,146 +1,191 @@
-library(gprofiler2)
-library(ggplot2)
-library(ggrepel)
-library(dplyr)
+suppressPackageStartupMessages({
+  library(clusterProfiler)
+  library(org.Hs.eg.db) # Human database for gene translation
+  library(ggplot2)
+  library(dplyr)
+  library(stringr)
+  library(tidyr)
+})
 
-# 1. Define the universal function
-run_go <- function(dge_data_location, out_dir, log_change, p_val_col, plot_name) {
+# ==============================================================================
+# 1. Define the clusterProfiler Analysis Function
+# ==============================================================================
+run_pathway_analysis <- function(csv_path, out_base_dir) {
   
-  # Ensure output directory exists
-  if (!dir.exists(out_dir)) {
-    dir.create(out_dir, recursive = TRUE)
-  }
-
-  # Read data
-  dge_data <- read.csv(dge_data_location)
+  # Extract names for titling and saving
+  file_name <- basename(csv_path)
+  clean_name <- str_remove(file_name, "^deseq2_") %>% str_remove("\\.csv$")
+  cell_type <- str_extract(clean_name, "^[^_]+")
   
-  # Filter for UP and DOWN genes (Log2FC threshold AND Adjusted P-value < 0.05)
-  genes_up <- dge_data$gene[
-    !is.na(dge_data[[log_change]]) & dge_data[[log_change]] > 1 & 
-    !is.na(dge_data[[p_val_col]]) & dge_data[[p_val_col]] < 0.05
-  ]
+  message(paste("\n-> Running clusterProfiler Analysis for:", clean_name))
   
-  genes_down <- dge_data$gene[
-    !is.na(dge_data[[log_change]]) & dge_data[[log_change]] < -1 & 
-    !is.na(dge_data[[p_val_col]]) & dge_data[[p_val_col]] < 0.05
-  ]
+  out_dir <- file.path(out_base_dir, cell_type, "pathways")
+  if (!dir.exists(out_dir)) { dir.create(out_dir, recursive = TRUE) }
   
-  # Create a named list to query both sets simultaneously
+  # Load DESeq2 DGE data
+  dge_data <- read.csv(csv_path)
+  
+  # --- STEP 1: Gene ID Translation (Symbol to Entrez) ---
+  # clusterProfiler requires Entrez IDs. We must map your gene symbols.
+  dge_data <- dge_data %>% filter(!is.na(padj))
+  
+  mapped_genes <- bitr(dge_data$gene, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+  
+  # Merge the Entrez IDs back into your DGE results
+  dge_data <- left_join(dge_data, mapped_genes, by = c("gene" = "SYMBOL")) %>% 
+    filter(!is.na(ENTREZID))
+  
+  # Define the custom background (Universe)
+  universe_entrez <- dge_data$ENTREZID
+  
+  # --- STEP 2: Extract Significant Upregulated and Downregulated Genes ---
+  genes_up <- dge_data %>%
+    filter(log2FoldChange > 1 & padj < 0.05) %>%
+    pull(ENTREZID)
+  
+  genes_down <- dge_data %>%
+    filter(log2FoldChange < -1 & padj < 0.05) %>%
+    pull(ENTREZID)
+  
+  # Create a named list for clusterProfiler's compareCluster
   query_list <- list()
-  if(length(genes_up) > 0) query_list[["Upregulated"]] <- genes_up
-  if(length(genes_down) > 0) query_list[["Downregulated"]] <- genes_down
+  if(length(genes_up) > 0) query_list[["Upregulated_in_PMH"]] <- genes_up
+  if(length(genes_down) > 0) query_list[["Downregulated_in_PMH"]] <- genes_down
   
-  if(length(query_list) == 0) {
-    message(paste("No significant genes passed the thresholds for", plot_name))
+  if (length(query_list) == 0) {
+    message("   - SKIPPING: No significant DE genes found to analyze.")
     return(NULL)
   }
-
-  # Run gProfiler
-  gostres <- gost(
-    query = query_list,
-    organism = "hsapiens",        
-    sources = c("GO:BP")          
+  
+  # ============================================================================
+  # 3A. Run GO: Biological Process (GO:BP)
+  # ============================================================================
+  message("   - Running GO:BP...")
+  go_res <- compareCluster(
+    geneCluster = query_list,
+    fun = "enrichGO",
+    universe = universe_entrez,
+    OrgDb = org.Hs.eg.db,
+    ont = "BP",
+    pAdjustMethod = "BH",
+    pvalueCutoff = 0.05,
+    qvalueCutoff = 0.05,
+    readable = TRUE # Automatically translates Entrez back to human-readable Symbols for the plot!
   )
-
-  if(is.null(gostres)) {
-    message(paste("No GO terms found for", plot_name))
-    return(NULL)
+  
+  if (!is.null(go_res) && nrow(as.data.frame(go_res)) > 0) {
+    
+    # --- FIXED CSV SAVING: Replace slashes with commas ---
+    go_df <- as.data.frame(go_res)
+    go_df$geneID <- str_replace_all(go_df$geneID, "/", ", ")
+    write.csv(go_df, file.path(out_dir, paste0(clean_name, "_GOBP_results.csv")), row.names = FALSE)
+    # -----------------------------------------------------
+    
+    # Generate native clusterProfiler DotPlot
+    p_go <- dotplot(go_res, showCategory = 10) +
+      ggtitle(paste("Biological Processes (GO:BP) -", tools::toTitleCase(str_replace_all(clean_name, "_", " ")))) +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+    
+    ggsave(filename = file.path(out_dir, paste0(clean_name, "_GOBP_bubbleplot.png")), plot = p_go, width = 10, height = 7, dpi = 300)
+  } else {
+    message("   - No significant GO:BP terms found.")
   }
 
-  res_full <- gostres$result
+  # ============================================================================
+  # 3B. Run KEGG Pathways
+  # ============================================================================
+  message("   - Running KEGG Pathways...")
+  kegg_res <- compareCluster(
+    geneCluster = query_list,
+    fun = "enrichKEGG",
+    universe = universe_entrez,
+    organism = "hsa",
+    pAdjustMethod = "BH",
+    pvalueCutoff = 0.05,
+    qvalueCutoff = 0.05
+  )
   
-  # Flatten list columns (like 'parents' or 'intersections') so write.csv doesn't crash
-  for (col in names(res_full)) {
-    if (is.list(res_full[[col]])) {
-      res_full[[col]] <- vapply(res_full[[col]], paste, collapse = ";", FUN.VALUE = character(1))
-    }
+  if (!is.null(kegg_res) && nrow(as.data.frame(kegg_res)) > 0) {
+    # Translate KEGG Entrez IDs back to Symbols for readable CSVs and plots
+    kegg_res <- setReadable(kegg_res, OrgDb = org.Hs.eg.db, keyType="ENTREZID")
+    
+    # --- FIXED CSV SAVING: Replace slashes with commas ---
+    kegg_df <- as.data.frame(kegg_res)
+    kegg_df$geneID <- str_replace_all(kegg_df$geneID, "/", ", ")
+    write.csv(kegg_df, file.path(out_dir, paste0(clean_name, "_KEGG_results.csv")), row.names = FALSE)
+    # -----------------------------------------------------
+    
+    # Generate native clusterProfiler DotPlot
+    p_kegg <- dotplot(kegg_res, showCategory = 10) +
+      ggtitle(paste("KEGG Pathways -", tools::toTitleCase(str_replace_all(clean_name, "_", " ")))) +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+    
+    ggsave(filename = file.path(out_dir, paste0(clean_name, "_KEGG_bubbleplot.png")), plot = p_kegg, width = 10, height = 7, dpi = 300)
+  } else {
+    message("   - No significant KEGG pathways found.")
   }
   
-  csv_path <- file.path(out_dir, paste0(plot_name, "_GO_results.csv"))
-  write.csv(res_full, file = csv_path, row.names = FALSE)
-  message("Saved full GO results CSV to: ", csv_path)
+  message(paste("   - Success! Saved separate GO and KEGG plots to:", out_dir))
+}
+# ==============================================================================
+# 2. Automated Execution Loop with Automated Logging
+# ==============================================================================
 
+base_subset_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster"
 
-  # Extract top 10 terms PER DIRECTION
-  res <- gostres$result
+# --- 1. SET UP THE LOG FILE ---
+# Create a logs folder inside the subset_cluster directory if it doesn't exist
+log_dir <- file.path(base_subset_dir, "logs")
+if (!dir.exists(log_dir)) { dir.create(log_dir, recursive = TRUE) }
+
+# Create a unique filename using the current date and time
+timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+log_file_path <- file.path(log_dir, paste0("pathway_analysis_", timestamp, ".log"))
+
+# Open the connection and start recording
+log_conn <- file(log_file_path, open = "wt")
+sink(log_conn, type = "output", split = TRUE) # split = TRUE prints to BOTH the screen and the file
+sink(log_conn, type = "message")
+
+message("==================================================================")
+message(paste("Log file created at:", log_file_path))
+message("=== Starting clusterProfiler Analysis (Separated KEGG/GO:BP) ===")
+message("==================================================================")
+
+# --- 2. RUN THE LOOP ---
+cell_type_folders <- list.dirs(base_subset_dir, recursive = FALSE, full.names = FALSE)
+# Remove the "logs" folder from the list of cell types to process!
+cell_type_folders <- cell_type_folders[cell_type_folders != "logs"]
+
+for (cell_type in cell_type_folders) {
   
-  top_terms <- res %>%
-    group_by(query) %>%
-    arrange(p_value) %>%
-    slice_head(n = 10) %>%
-    ungroup() %>%
-    mutate(
-      log_p = -log10(p_value),
-      plot_val = ifelse(query == "Downregulated", -log_p, log_p),
-      term_name = factor(term_name, levels = unique(term_name[order(plot_val)]))
-    )
-
-  # Create a diverging bar plot
-  go_plot <- ggplot(top_terms, aes(x = term_name, y = plot_val, fill = query)) +
-    geom_bar(stat = "identity", color = "black", alpha = 0.8) +
-    coord_flip() +  
-    scale_fill_manual(values = c("Upregulated" = "firebrick", "Downregulated" = "steelblue")) +
-    geom_hline(yintercept = 0, color = "black", linewidth = 0.5) + 
-    labs(
-      x = "Biological Process", 
-      y = "Directional -log10(p-value) \n(Left: Down, Right: Up)", 
-      title = paste("GO:BP Enrichment -", plot_name),
-      fill = "Direction"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(legend.position = "bottom")
-
-  # Save the plot
-  save_path <- file.path(out_dir, paste0(plot_name, "_GO_BP_plot.png"))
-  ggsave(filename = save_path, plot = go_plot, width = 10, height = 8, bg = "white")
+  dge_dir <- file.path(base_subset_dir, cell_type, "dge_pseudobulk")
+  if (!dir.exists(dge_dir)) { next }
   
-  message("Saved plot to: ", save_path)
-  return(go_plot) 
+  dge_files <- list.files(dge_dir, pattern = "^deseq2_.*\\.csv$", full.names = TRUE, recursive = TRUE)
+  
+  if (length(dge_files) == 0) {
+    message(paste("No DGE CSV files found for", cell_type))
+    next
+  }
+  
+  for (csv_file in dge_files) {
+    # If the analysis crashes on one file, tryCatch ensures the loop continues to the next!
+    tryCatch({
+      run_pathway_analysis(csv_file, base_subset_dir)
+    }, error = function(e) {
+      message(paste("   [ERROR] Failed to process", basename(csv_file), ":", conditionMessage(e)))
+    })
+  }
 }
 
-# --- 2. Execute Functions ---
+message("\n==================================================================")
+message("=== All Pathway Analyses Completed Successfully! ===")
+message(paste("Run finished at:", Sys.time()))
+message("==================================================================")
 
-# Macrophage (DESeq2 usually uses 'padj' for adjusted p-value)
-macrophage_plot <- run_go(
-  dge_data_location = "/home/johan/output/skin_pmh/dge/macrophage/deseq2_results.csv",
-  out_dir = "/home/johan/output/skin_pmh/go/macrophage",
-  log_change = "log2FoldChange",
-  p_val_col = "padj", 
-  plot_name = "Macrophage"
-)
-
-# Fibroblast (Seurat usually uses 'p_val_adj')
-fibroblast_plot <- run_go(
-  dge_data_location = "/home/johan/output/skin_pmh/dge/fibroblast/fibroblast_markers_cluster1_vs_5_7_10.csv",
-  out_dir = "/home/johan/output/skin_pmh/go/fibroblast",
-  log_change = "avg_log2FC",
-  p_val_col = "p_val_adj", 
-  plot_name = "Fibroblast-Combine"
-)
-
-# Keratinocyte (Seurat usually uses 'p_val_adj')
-keratinocyte_plot <- run_go(
-  dge_data_location = "/home/johan/output/skin_pmh/dge/keratinocyte/keratinocyte_markers_cluster1_vs_5_7_10.csv",
-  out_dir = "/home/johan/output/skin_pmh/go/keratinocyte",
-  log_change = "avg_log2FC",
-  p_val_col = "p_val_adj",
-  plot_name = "Keratinocyte-Combine"
-)
-
-# Fibroblast (Seurat usually uses 'p_val_adj')
-fibroblast_plot <- run_go(
-  dge_data_location = "/home/johan/output/skin_pmh/dge/fibroblast/fibroblast_PMH_cluster1_vs_5_7_10.csv",
-  out_dir = "/home/johan/output/skin_pmh/go/fibroblast",
-  log_change = "avg_log2FC",
-  p_val_col = "p_val_adj", 
-  plot_name = "Fibroblast-PMH"
-)
-
-# Keratinocyte (Seurat usually uses 'p_val_adj')
-keratinocyte_plot <- run_go(
-  dge_data_location = "/home/johan/output/skin_pmh/dge/keratinocyte/keratinocyte_PMH_cluster1_vs_5_7_10.csv",
-  out_dir = "/home/johan/output/skin_pmh/go/keratinocyte",
-  log_change = "avg_log2FC",
-  p_val_col = "p_val_adj",
-  plot_name = "Keratinocyte-PMH"
-)
+# --- 3. CLOSE THE LOG FILE ---
+# This is critical! If you don't close the sink, R will keep logging forever.
+sink(type = "message")
+sink(type = "output")
+close(log_conn)

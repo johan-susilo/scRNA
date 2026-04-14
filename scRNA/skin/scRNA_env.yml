@@ -1,0 +1,52 @@
+name: seurat_env
+channels:
+  - pwwang
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  # Let conda calculate the best R and Seurat versions to satisfy all dependencies
+  - r-base>=4.3.0
+  - r-seurat>=5.0.0
+  - bioconductor-clusterprofiler
+  - r-harmony
+  - r-optparse
+  - r-doubletfinder 
+  
+  # --- CRITICAL PIPELINE ADDITIONS ---
+  - bioconductor-glmgampoi
+  - r-presto
+  - r-rcolorbrewer
+  - r-scales
+  - r-patchwork
+  - r-future
+  - r-future.apply
+  
+  # --- PLOTTING EXTENSIONS ---
+  - r-cowplot
+  - r-ggpubr
+  - r-ggsci
+  
+  # --- MONOCLE 3 ---
+  - r-monocle3
+  
+  # --- CELLCHAT DEPENDENCIES & GITHUB INSTALLER ---
+  - r-remotes
+  - r-nmf
+  - r-circlize
+  - bioconductor-complexheatmap
+  - bioconductor-biocneighbors
+  
+  # Bioconductor Packages
+  - bioconductor-deseq2
+  - bioconductor-slingshot
+  - bioconductor-singlecellexperiment
+  - bioconductor-org.hs.eg.db
+  - bioconductor-singler
+  - r-sccatch
+  
+  # Plotting & Tidyverse
+  - r-tidyverse 
+  - r-ggrepel
+  - r-clustree
+  - r-viridis
