@@ -7,6 +7,8 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
+set.seed(42)
+
 # ==============================================================================
 # 1. SETUP & LOAD DATA
 # ==============================================================================
@@ -18,6 +20,20 @@ FB.subgroup <- readRDS("/home/johan/output/skin_pmh_harmony_sctransform2/subset_
 
 # Ensure Default Assay is RNA
 DefaultAssay(FB.subgroup) <- "RNA"
+
+save_dual_format <- function(plot_obj, file_path_no_ext, w = 10, h = 8) {
+  # Save PDF
+  pdf(paste0(file_path_no_ext, ".pdf"), width = w, height = h)
+  print(plot_obj)
+  dev.off()
+  
+  # Save High-Resolution PNG (300 dpi for presentations)
+  png(paste0(file_path_no_ext, ".png"), width = w, height = h, units = "in", res = 300)
+  print(plot_obj)
+  dev.off()
+  
+  message(paste("Saved:", file_path_no_ext, "(PDF & PNG)"))
+}
 
 # ==============================================================================
 # 2. THE DICTIONARIES (Separated for Mathematical Accuracy)
@@ -41,6 +57,22 @@ biological_dictionary <- list(
 # VALIDATION DICTIONARY: Used for generating plots. Re-attaches the Stress Markers so you can see them.
 validation_dictionary <- biological_dictionary
 validation_dictionary[["QC_Stress_Markers"]] <- c("MT2A", "MT1M", "MT1X", "HSP90AA1", "JUNB", "GADD45B", "IER3")
+
+f1_f8_colors <- c(
+  "F1_Superficial_Papillary"        = "#1F77B4",  # Blue
+  "F2_Universal_Reticular"          = "#FF7F0E",  # Orange
+  "F2_F3_Perivascular"              = "#2CA02C",  # Green
+  "F3_FRC_like"                     = "#74c022",  # Red
+  "F4_HairFollicle_Associated"      = "#9467BD",  # Purple
+  "F5_Schwann_like"                 = "#8C564B",  # Brown
+  "F6_Inflammatory_Myofibroblast"   = "#E377C2",  # Pink
+  "F7_Myofibroblast"                = "#7F7F7F",  # Grey
+  "F8_Fascia_like_Myofibroblast"    = "#BCBD22",  # Olive
+  "Myofibroblast_Disease_Signature" = "#D62728",  # Cyan (Stand out for your main disease cells!)
+  "Prenatal_LTo_like"               = "#AEC7E8",  # Light Blue
+  "QC_Stress_Markers"               = "#000000",  # Black (so you spot artifacts instantly)
+  "Unassigned"                      = "#D3D3D3"   # Light Grey
+)
 
 # ==============================================================================
 # 3. THE F1-F8 SINGLE-R AUTO-ANNOTATION ENGINE
@@ -86,9 +118,10 @@ message("\n--- Biological Clusters Assigned ---")
 print(table(Idents(FB.subgroup)))
 message("------------------------------------\n")
 
-p_annotated_umap <- DimPlot(FB.subgroup, label = TRUE, repel = TRUE) + 
+p_annotated_umap <- DimPlot(FB.subgroup, label = TRUE, repel = TRUE, cols = f1_f8_colors) + 
   ggtitle("SingleR Auto-Annotated F1-F8 Fibroblasts")
-ggsave(file.path(out_dir, "UMAP_Annotated_F1_F8.pdf"), plot = p_annotated_umap, width = 10, height = 7)
+save_dual_format(p_annotated_umap, file.path(out_dir, "UMAP_Annotated_F1_F8"), w = 8, h = 6 )
+
 # ==============================================================================
 # 4. HANIFFA F1-F8 MARKER VISUALIZATION (Automated Loop)
 # ==============================================================================
@@ -120,7 +153,7 @@ for (category_name in names(validation_dictionary)) {
   
   # VlnPlot wrapped in tryCatch
   tryCatch({
-    p_vln <- VlnPlot(FB.subgroup, features = valid_genes, stack = TRUE, flip = TRUE) +
+    p_vln <- VlnPlot(FB.subgroup, features = valid_genes, stack = TRUE, flip = TRUE, cols = f1_f8_colors) +
       theme(legend.position = "none") +
       ggtitle(paste("Fibroblast -", category_name))
     ggsave(file.path(out_dir, paste0("VlnPlot_", category_name, ".pdf")), plot = p_vln, width = 8, height = max(6, length(valid_genes)*1.5))
@@ -167,7 +200,73 @@ master_dotplot <- DotPlot(FB.subgroup, features = valid_paper_genes, dot.scale =
     legend.position = "right"
   )
 
-ggsave(file.path(out_dir, "Publication_Master_DotPlot.pdf"), plot = master_dotplot, width = 14, height = 8)
+save_dual_format(master_dotplot, file.path(out_dir, "Publication_Master_DotPlot.pdf"), w = 14, h = 8)
+
+# ==============================================================================
+# 5. NEW: MUCIN & ECM GENE ANALYSIS
+# ==============================================================================
+message("Running Mucin & Tissue Remodeling Gene Analysis...")
+
+mucin_ecm_genes <- c("HAS1", "HAS2", "HAS3", "MMP2", "MMP11", "TIMP3", "MUC1", "MUC4")
+available_mucin <- intersect(mucin_ecm_genes, rownames(FB.subgroup))
+
+if(length(available_mucin) > 0) {
+  
+  # 5A. UMAP FeaturePlots for Mucin
+  mucin_umap <- FeaturePlot(FB.subgroup, features = available_mucin, pt.size = 0.5, order = TRUE, ncol = 3, label = TRUE, repel = TRUE)
+  save_dual_format(mucin_umap, file.path(out_dir, "Mucin_Genes_UMAP_Highlighted"), w = 15, h = 10)
+  
+  # 5B. Summary DotPlot for Mucin Production by Cluster
+  mucin_dotplot <- DotPlot(FB.subgroup, features = available_mucin, dot.scale = 8) +
+    theme_minimal() +
+    RotatedAxis() +
+    scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) +
+    labs(
+      title = "Mucin & ECM Production by Fibroblast Subtype",
+      x = "Target Genes",
+      y = "Fibroblast Subcluster"
+    ) +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+      axis.text.x = element_text(face = "italic", color = "black", size = 12),
+      axis.text.y = element_text(color = "black", size = 12)
+    )
+  
+  save_dual_format(mucin_dotplot, file.path(out_dir, "Mucin_Genes_DotPlot_Summary"), w = 10, h = 7)
+  
+} else {
+  message("Warning: None of the targeted mucin genes were detected in this dataset.")
+}
+
+create_proportion_barplot <- function(seurat_obj, group_col = "Condition", label_col = "SingleR_label", plot_title = "Cell Proportions") {
+  
+  # Calculate proportions dynamically based on the columns you pass in
+  prop_df <- seurat_obj@meta.data %>%
+    group_by(.data[[group_col]], .data[[label_col]]) %>%
+    summarise(Count = n(), .groups = 'drop') %>%
+    group_by(.data[[group_col]]) %>%
+    mutate(Proportion = Count / sum(Count))
+  
+  # Generate the plot
+  p <- ggplot(prop_df, aes(x = .data[[group_col]], y = Proportion, fill = .data[[label_col]])) +
+    geom_col(position = "fill", color = "black", linewidth = 0.2) +
+    theme_classic() +
+    scale_fill_manual(values = f1_f8_colors) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(title = plot_title, x = group_col, y = "Percentage of Cells", fill = "Subtype") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = "bold"),
+          plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+  
+  return(p)
+}
+
+# 1. Create and save Barplot by Condition (Healthy vs Acute vs Chronic)
+bar_cond <- create_proportion_barplot(FB.subgroup, group_col = "Condition", plot_title = "Fibroblast Subtypes by Condition")
+save_dual_format(bar_cond, file.path(out_dir, "Proportion_Barplot_Condition"), w = 8, h = 6)
+
+# 2. Create and save Barplot by Sample ID (HTY131, AC259, etc.)
+bar_samp <- create_proportion_barplot(FB.subgroup, group_col = "orig.ident2", plot_title = "Fibroblast Subtypes by Sample")
+save_dual_format(bar_samp, file.path(out_dir, "Proportion_Barplot_Sample"), w = 10, h = 6)
 
 message("Saving final annotated RDS...")
 saveRDS(FB.subgroup, file.path(dirname(out_dir), "processed", "fibroblast_annotated_final.rds"))

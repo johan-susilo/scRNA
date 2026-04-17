@@ -165,7 +165,7 @@ fibro_obj <- process_subset(
   subset_clusters = c("1", "3", "8"), 
   prefix = "fibroblast", 
   out_base_dir = base_out_dir,
-  default_res = 0.2
+  default_res = 0.6
 )
 
 
