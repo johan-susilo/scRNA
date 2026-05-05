@@ -1,0 +1,64 @@
+# ==============================================================================
+# 6. UNIVERSAL PROPORTIONS & SPLIT UMAPS (Condition & Sample)
+# ==============================================================================
+message("Generating Universal Proportion Barplots & Split UMAPs...")
+
+# Make sure Condition column exists (Fallback to orig.ident1 if missing)
+if (!"Condition" %in% colnames(seu_obj@meta.data)) {
+  seu_obj$Condition <- ifelse(grepl("HTY|UA", seu_obj$orig.ident2, ignore.case = TRUE), "Healthy", "PMH")
+}
+
+# --- 1. PROPORTION BARPLOTS ---
+# A. By Condition (Healthy vs PMH)
+prop_cond <- seu_obj@meta.data %>%
+  group_by(Condition, SingleR_label) %>%
+  summarise(Count = n(), .groups = 'drop') %>%
+  group_by(Condition) %>%
+  mutate(Proportion = Count / sum(Count))
+
+p_bar_cond <- ggplot(prop_cond, aes(x = Condition, y = Proportion, fill = SingleR_label)) +
+  geom_col(position = "fill", color = "black", linewidth = 0.3) +
+  scale_fill_manual(values = active_colors) +
+  theme_classic(base_size = 14) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = paste(toupper(opt$celltype), "Subtypes by Condition"), x = "Condition", y = "Percentage of Cells") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), axis.text.x = element_text(face = "bold"))
+
+save_dual_format(p_bar_cond, file.path(dirs$proportions, "Proportion_Barplot_Condition"), w = 7, h = 6)
+
+# B. By Sample
+prop_samp <- seu_obj@meta.data %>%
+  group_by(orig.ident2, SingleR_label) %>%
+  summarise(Count = n(), .groups = 'drop') %>%
+  group_by(orig.ident2) %>%
+  mutate(Proportion = Count / sum(Count))
+
+p_bar_samp <- ggplot(prop_samp, aes(x = orig.ident2, y = Proportion, fill = SingleR_label)) +
+  geom_col(position = "fill", color = "black", linewidth = 0.3) +
+  scale_fill_manual(values = active_colors) +
+  theme_classic(base_size = 14) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = paste(toupper(opt$celltype), "Subtypes by Sample"), x = "Sample", y = "Percentage of Cells") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"))
+
+save_dual_format(p_bar_samp, file.path(dirs$proportions, "Proportion_Barplot_Sample"), w = 10, h = 6)
+
+
+# --- 2. SPLIT UMAPS ---
+# C. Split UMAP by Condition (Healthy vs PMH)
+p_umap_cond <- DimPlot(seu_obj, split.by = "Condition", group.by = "SingleR_label", cols = active_colors, pt.size = 0.6) +
+  ggtitle(paste(toupper(opt$celltype), "UMAP: Healthy vs PMH")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+save_dual_format(p_umap_cond, file.path(dirs$umaps_sample, "UMAP_Split_by_Condition"), w = 12, h = 6)
+
+# D. Split UMAP by Sample
+# We calculate a dynamic width based on the number of samples so the plot doesn't squish
+num_samples <- length(unique(seu_obj$orig.ident2))
+dynamic_width <- max(12, ceiling(num_samples / 3) * 5)
+
+p_umap_samp <- DimPlot(seu_obj, split.by = "orig.ident2", group.by = "SingleR_label", cols = active_colors, pt.size = 0.6, ncol = 3) +
+  ggtitle(paste(toupper(opt$celltype), "UMAP: Per Sample Comparison")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+save_dual_format(p_umap_samp, file.path(dirs$umaps_sample, "UMAP_Split_by_Sample"), w = dynamic_width, h = ceiling(num_samples/3)*4)
