@@ -1,0 +1,6 @@
+[submodule "external-lib"]
+	path = external-lib
+	url = https://github.com/johan-susilo/pmh-scrnaseq.git
+[submodule "scRNA/skin_snakemake"]
+	path = scRNA/skin_snakemake
+	url = https://github.com/johan-susilo/pmh-scrnaseq.git
