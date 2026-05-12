@@ -1,0 +1,65 @@
+name: scRNA Skin Pipeline CI
+
+# Trigger the workflow only when files in the scRNA/skin folder are modified
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'scRNA/skin/**'
+      - '.github/workflows/scrna-skin-ci.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'scRNA/skin/**'
+
+jobs:
+  validate-pipeline:
+    runs-on: ubuntu-latest
+    
+    # Required to make Conda environments work properly in GitHub Actions
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Setup Conda and cache the environment
+      # Caching is CRITICAL here because installing Seurat and Monocle3 from scratch takes a long time.
+      - name: Setup Miniconda and Environment
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          activate-environment: seurat_env
+          environment-file: scRNA/skin/scRNA_env.yml
+          cache-environment: true
+          cache-environment-key: conda-env-${{ runner.os }}-${{ hashFiles('scRNA/skin/scRNA_env.yml') }}
+
+      - name: Verify Core Dependencies Loaded
+        run: |
+          echo "Testing if the environment built correctly..."
+          Rscript -e "suppressPackageStartupMessages({ library(Seurat); library(harmony); library(DoubletFinder) }); print('Core packages loaded successfully!')"
+
+      - name: Syntax Check All R Scripts
+        run: |
+          echo "Checking all .R files in scRNA/skin/ for syntax errors..."
+          # This loop finds every .R file and parses it without executing it
+          find scRNA/skin -name "*.R" -type f -print0 | while IFS= read -r -d $'\0' file; do
+            echo "Linting $file..."
+            Rscript -e "tryCatch(parse(file = '$file'), error = function(e) { stop(paste('Syntax Error in $file:', e$message)) })"
+          done
+          echo "✅ All R scripts passed syntax validation!"
+
+      # --- OPTIONAL: END-TO-END MOCK DATA TEST ---
+      # Once you create a tiny fake 10X dataset (e.g., 50 cells) and put it in scRNA/skin/test_data/,
+      # you can uncomment the lines below to actually run the preprocessing script in the cloud.
+      
+      # - name: Run Preprocessing on Mock Data
+      #   run: |
+      #     mkdir -p ./test_output
+      #     # Assuming you created a tiny mock input.csv
+      #     Rscript scRNA/skin/preprocessing.R -f scRNA/skin/mock_input.csv -d scRNA/skin/test_data -s all -o ./test_output -c 2
+      #     
+      #     # Verify the output RDS file was created
+      #     test -f ./test_output/TN.combined_dim30.rds || { echo "Pipeline failed to produce final RDS"; exit 1; }
