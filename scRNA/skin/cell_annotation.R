@@ -484,9 +484,9 @@ generate_consensus_annotation <- function() {
       if (is.null(t) || t == "" || tolower(t) == "unassigned" || tolower(t) == "unknown") next
       vote_row <- data.frame(Source = source_name, Vote = t, stringsAsFactors = FALSE)
       if (is.null(votes_by_cluster[[clean_cluster]])) {
-        votes_by_cluster[[clean_cluster]] <<- vote_row
+        votes_by_cluster[[clean_cluster]] <<- list(vote_row)
       } else {
-        votes_by_cluster[[clean_cluster]] <<- rbind(votes_by_cluster[[clean_cluster]], vote_row)
+        votes_by_cluster[[clean_cluster]][[length(votes_by_cluster[[clean_cluster]]) + 1]] <<- vote_row
       }
     }
   }
@@ -571,22 +571,18 @@ generate_consensus_annotation <- function() {
   }
 
   # Tally votes and build consensus table
-  consensus_results <- data.frame(
-    Cluster = character(),
-    Top_Cell_Type = character(),
-    Count = integer(),
-    Total_Votes = integer(),
-    Percent = numeric(),
-    Sources = character(),
-    Vote_Details = character(),
-    stringsAsFactors = FALSE
-  )
+  consensus_results_list <- list()
 
   clusters <- sort(names(votes_by_cluster), decreasing = FALSE)
   for (cluster in clusters) {
     vote_df <- votes_by_cluster[[cluster]]
+    # Since we changed votes_by_cluster building, vote_df will be a list of data.frames
+    if (is.list(vote_df) && length(vote_df) > 0 && !is.data.frame(vote_df)) {
+        vote_df <- dplyr::bind_rows(vote_df)
+    }
+
     if (is.null(vote_df) || nrow(vote_df) == 0) {
-      consensus_results <- rbind(consensus_results, data.frame(
+      consensus_results_list[[cluster]] <- data.frame(
         Cluster = cluster,
         Top_Cell_Type = "Unknown",
         Count = 0,
@@ -595,7 +591,7 @@ generate_consensus_annotation <- function() {
         Sources = "",
         Vote_Details = "",
         stringsAsFactors = FALSE
-      ))
+      )
       next
     }
 
@@ -620,7 +616,7 @@ generate_consensus_annotation <- function() {
     vc$Percent <- round(100 * vc$Votes / total_votes, 1)
     vote_details <- paste(paste0(vc$CellType, " (", vc$Votes, ", ", vc$Percent, "%)"), collapse = "; ")
 
-    consensus_results <- rbind(consensus_results, data.frame(
+    consensus_results_list[[cluster]] <- data.frame(
       Cluster = cluster,
       Top_Cell_Type = top_label,
       Count = as.integer(max_votes),
@@ -629,8 +625,10 @@ generate_consensus_annotation <- function() {
       Sources = sources_str,
       Vote_Details = vote_details,
       stringsAsFactors = FALSE
-    ))
+    )
   }
+
+  consensus_results <- dplyr::bind_rows(consensus_results_list)
 
   # write neat table (Cluster as numeric if possible)
   consensus_results$Cluster <- as.character(consensus_results$Cluster)
