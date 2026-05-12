@@ -6,13 +6,26 @@ suppressPackageStartupMessages({
   library(tidyr)
   library(ggrepel)
   library(stringr)
+  library(optparse)
 })
+
+# ==============================================================================
+# COMMAND LINE ARGUMENTS
+# ==============================================================================
+option_list <- list(
+  make_option(c("-d", "--dir"), type="character", help="Base directory containing cell type subfolders")
+)
+opt <- parse_args(OptionParser(option_list=option_list))
+
+if (is.null(opt$dir)) {
+  stop("Missing required argument: --dir. Use --help for options.")
+}
 
 message("\n==================================================================")
 message("=== Starting Unified Pseudobulk DGE Factory ===")
 message("==================================================================")
 
-base_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster"
+base_dir <- opt$dir
 cell_types <- list.dirs(base_dir, recursive = FALSE, full.names = FALSE)
 
 # ------------------------------------------------------------------------------

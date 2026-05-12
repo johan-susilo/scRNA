@@ -5,6 +5,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(stringr)
   library(tidyr)
+  library(optparse)
 })
 
 # ==============================================================================
@@ -101,7 +102,17 @@ run_pathway_analysis <- function(csv_path, out_base_dir) {
 # ==============================================================================
 # 2. RUN THE LOOP
 # ==============================================================================
-base_subset_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster"
+option_list <- list(
+  make_option(c("-d", "--dir"), type="character", help="Base directory containing cell type subfolders")
+)
+opt <- parse_args(OptionParser(option_list=option_list))
+
+if (is.null(opt$dir)) {
+  stop("Missing required argument: --dir. Use --help for options.")
+}
+
+base_subset_dir <- opt$dir
+
 message("\n==================================================================")
 message("=== Starting Comparative Pathway Analysis (Up vs Down) ===")
 message("==================================================================")

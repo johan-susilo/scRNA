@@ -6,6 +6,7 @@ suppressPackageStartupMessages({
   library(clustree)
   library(harmony)
   library(ggrepel)
+  library(optparse)
 })
 
 # ==============================================================================
@@ -152,47 +153,48 @@ p_bar_sample <- ggplot(prop_sample %>% filter(Proportion > 0), aes(x = Sample, y
 }
 
 # ==============================================================================
-# 2. Execution
+# 2. Execution (Parameterized)
 # ==============================================================================
-base_out_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster_strict"
-pmh_obj <- readRDS("/home/johan/output/skin_pmh_harmony_sctransform2/TN.combined_dim30.rds")
-pmh_obj <- subset(pmh_obj, subset = orig.ident2 != "HTY244")
-Idents(pmh_obj) <- "seurat_clusters"
+option_list <- list(
+  make_option(c("-i", "--input"), type = "character", help = "Path to the base RDS object"),
+  make_option(c("-o", "--outdir"), type = "character", help = "Base output directory for subsets"),
+  make_option(c("-c", "--clusters"), type = "character", help = "Comma-separated list of clusters to subset (e.g. '1,3,8')"),
+  make_option(c("-p", "--prefix"), type = "character", help = "Prefix/cell type name for the subset (e.g. 'fibroblast')"),
+  make_option(c("-r", "--resolution"), type = "numeric", default = 0.2, help = "Default clustering resolution")
+)
+opt <- parse_args(OptionParser(option_list = option_list))
 
-# Run Fibroblasts
-fibro_obj <- process_subset(
+if (any(sapply(list(opt$input, opt$outdir, opt$clusters, opt$prefix), is.null))) {
+  stop("Missing required arguments. Use --help for options.")
+}
+
+message("Loading base Seurat object: ", opt$input)
+pmh_obj <- readRDS(opt$input)
+
+# Apply global dataset exclusions if necessary
+if ("orig.ident2" %in% colnames(pmh_obj@meta.data)) {
+  pmh_obj <- subset(pmh_obj, subset = orig.ident2 != "HTY244")
+}
+
+# Ensure clustering identity is properly set to standard Seurat clusters before subsetting
+if ("seurat_clusters" %in% colnames(pmh_obj@meta.data)) {
+    Idents(pmh_obj) <- "seurat_clusters"
+}
+
+# Parse clusters into a vector of strings
+subset_clusters <- unlist(strsplit(opt$clusters, ","))
+subset_clusters <- trimws(subset_clusters)
+
+message("Subsetting clusters: ", paste(subset_clusters, collapse = ", "), " as ", opt$prefix)
+
+# Execute the subset and save
+res_obj <- process_subset(
   seurat_obj = pmh_obj, 
-  subset_clusters = c("1", "3", "8"), 
-  prefix = "fibroblast", 
-  out_base_dir = base_out_dir,
-  default_res = 0.6
+  subset_clusters = subset_clusters,
+  prefix = opt$prefix,
+  out_base_dir = opt$outdir,
+  default_res = opt$resolution
 )
 
-
-## Run Pipeline 3: Macrophages
-macro_obj <- process_subset(
-  seurat_obj = pmh_obj, 
-  subset_clusters = c("6"), 
-  prefix = "macrophage", 
-  out_base_dir = base_out_dir,
-  default_res = 0.2
-)
-#
-#
-#fibro_macro_obj <- process_subset(
-#  seurat_obj = pmh_obj, 
-#  subset_clusters = c("1", "3", "8","6", "14"), 
-#  prefix = "fibro_macrophage", 
-#  out_base_dir = base_out_dir,
-#  default_res = 0.2,
-#  clusters_to_remove = c("6")
-#)
-#
-#krt_obj <- process_subset(
-#  seurat_obj = pmh_obj, 
-#  subset_clusters = c("0", "2", "7", "10","16"), 
-#  prefix = "keratinocyte", 
-#  out_base_dir = base_out_dir,
-#  default_res = 0.2
-#)
+message("=== Subset process completed successfully for ", opt$prefix, " ===")
 

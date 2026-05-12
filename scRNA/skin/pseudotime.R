@@ -16,8 +16,8 @@ suppressPackageStartupMessages({
 
 # Command-line Interface ----------------------------------------------------
 option_list <- list(
-  make_option(c("-r", "--rds"), type = "character", default = NULL,
-              help = "Path to RDS file (TN.combined_dim30.rds)"),
+  make_option(c("-i", "--input"), type = "character", default = NULL,
+              help = "Path to RDS file (e.g., processed subset object)"),
   make_option(c("-c", "--clusters"), type = "character", default = NULL,
               help = "Comma-separated list of cluster IDs to include (e.g., '0,2,3,6,15')"),
   make_option(c("--all_clusters"), action = "store_true", default = FALSE,
@@ -30,6 +30,11 @@ option_list <- list(
 
 parser <- OptionParser(option_list = option_list)
 opt <- parse_args(parser)
+
+# Maintain backwards compatibility
+if (!is.null(opt$rds) && is.null(opt$input)) {
+  opt$input <- opt$rds
+}
 
 # Create output directory
 output_dir <- opt$output
@@ -65,11 +70,11 @@ message("\n============================================================")
 message("Loading Seurat object")
 message("============================================================")
 
-if (is.null(opt$rds)) {
-  stop("RDS file path must be specified with --rds")
+if (is.null(opt$input)) {
+  stop("RDS file path must be specified with -i or --input")
 }
 
-TN.combined <- readRDS(file = opt$rds)
+TN.combined <- readRDS(file = opt$input)
 message("Loaded Seurat object: ", ncol(TN.combined), " cells, ", nrow(TN.combined), " features")
 message("Total clusters: ", length(unique(Idents(TN.combined))))
 

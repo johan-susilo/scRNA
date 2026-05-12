@@ -5,6 +5,7 @@ library(DESeq2)
 library(tidyr)
 library(ggrepel)
 library(stringr)
+library(optparse)
 
 # ==============================================================================
 # 1. Define the Pseudobulk Function for Sub-clusters
@@ -137,7 +138,16 @@ run_subcluster_dge <- function(subcluster_id, cell_type, base_out_dir, counts_ma
 # 2. Automated Execution Loop (The Auto-Discovery Block)
 # ==============================================================================
 
-base_subset_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster"
+option_list <- list(
+  make_option(c("-d", "--dir"), type="character", help="Base directory containing cell type subfolders")
+)
+opt <- parse_args(OptionParser(option_list=option_list))
+
+if (is.null(opt$dir)) {
+  stop("Missing required argument: --dir. Use --help for options.")
+}
+
+base_subset_dir <- opt$dir
 
 # Auto-discover all folders inside the subset directory
 cell_type_folders <- list.dirs(base_subset_dir, recursive = FALSE, full.names = FALSE)
