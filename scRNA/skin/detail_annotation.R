@@ -223,8 +223,10 @@ save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_
 
 # --- 3B. PER-SAMPLE UMAPS ---
 message("Generating sample-specific UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# OPTIMIZATION (Bolt): Use SplitObject outside the loop instead of repetitive subset() calls
+split_fb_samples <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(split_fb_samples)) {
+  sample_obj <- split_fb_samples[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_umap <- DimPlot(sample_obj, label = TRUE, repel = TRUE, cols = f1_f8_colors) +
