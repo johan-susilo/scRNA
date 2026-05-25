@@ -221,10 +221,15 @@ p_annotated_umap <- DimPlot(FB.subgroup, label = TRUE, repel = TRUE, cols = f1_f
   ggtitle("Single-Cell Annotated F1-F8 Fibroblasts")
 save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_F1_F8"), w = 9, h = 7 )
 
+# --- ⚡ BOLT OPTIMIZATION: SPLIT ONCE ---
+# Splitting the object outside the loop to avoid O(n) Seurat subset calls.
+# Called immediately before the loop to ensure metadata is completely up-to-date.
+FB.split_by_sample <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+
 # --- 3B. PER-SAMPLE UMAPS ---
 message("Generating sample-specific UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+for (sample_id in names(FB.split_by_sample)) {
+  sample_obj <- FB.split_by_sample[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_umap <- DimPlot(sample_obj, label = TRUE, repel = TRUE, cols = f1_f8_colors) +
@@ -346,8 +351,10 @@ if(length(available_mucin) > 0) {
   
   save_dual_format(mucin_dotplot, file.path(dirs$mucin, "Mucin_DotPlot_Summary"), w = 10, h = 7)
 
-  for (sample_id in unique(FB.subgroup$orig.ident2)) {
-    sample_subset <- subset(FB.subgroup, subset = orig.ident2 == sample_id)
+  # --- ⚡ BOLT OPTIMIZATION: SPLIT ONCE ---
+  FB.split_by_sample <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+  for (sample_id in names(FB.split_by_sample)) {
+    sample_subset <- FB.split_by_sample[[sample_id]]
     if (ncol(sample_subset) > 0) {
       p_sample_dotplot <- DotPlot(sample_subset, features = available_mucin, dot.scale = 8) +
         theme_minimal() +
@@ -564,8 +571,11 @@ save_dual_format(p_macro_umap, file.path(dirs$umaps_global, "UMAP_MacroLineage_G
 
 # --- PLOT D: Per-Sample UMAPs by Macro Lineage ---
 message("Generating sample-specific Macro Lineage UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# --- ⚡ BOLT OPTIMIZATION: SPLIT ONCE ---
+# Re-splitting here because Macro_Lineage metadata was added since the last split
+FB.split_by_sample <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(FB.split_by_sample)) {
+  sample_obj <- FB.split_by_sample[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_macro_umap <- DimPlot(sample_obj, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) +
