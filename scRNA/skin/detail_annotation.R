@@ -223,8 +223,10 @@ save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_
 
 # --- 3B. PER-SAMPLE UMAPS ---
 message("Generating sample-specific UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# BOLT OPTIMIZATION: Replaced iterative `subset` calls inside loop with `SplitObject()` for significant performance boost
+sample_split <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(sample_split)) {
+  sample_obj <- sample_split[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_umap <- DimPlot(sample_obj, label = TRUE, repel = TRUE, cols = f1_f8_colors) +
@@ -346,8 +348,12 @@ if(length(available_mucin) > 0) {
   
   save_dual_format(mucin_dotplot, file.path(dirs$mucin, "Mucin_DotPlot_Summary"), w = 10, h = 7)
 
-  for (sample_id in unique(FB.subgroup$orig.ident2)) {
-    sample_subset <- subset(FB.subgroup, subset = orig.ident2 == sample_id)
+  # BOLT OPTIMIZATION: SplitObject outside the loop is significantly faster than iterative subset() inside.
+  # We recreate it here to guarantee any recent metadata mutations to FB.subgroup are captured.
+  sample_split <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+
+  for (sample_id in names(sample_split)) {
+    sample_subset <- sample_split[[sample_id]]
     if (ncol(sample_subset) > 0) {
       p_sample_dotplot <- DotPlot(sample_subset, features = available_mucin, dot.scale = 8) +
         theme_minimal() +
@@ -564,8 +570,11 @@ save_dual_format(p_macro_umap, file.path(dirs$umaps_global, "UMAP_MacroLineage_G
 
 # --- PLOT D: Per-Sample UMAPs by Macro Lineage ---
 message("Generating sample-specific Macro Lineage UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# BOLT OPTIMIZATION: SplitObject outside the loop is significantly faster than iterative subset() inside.
+# We recreate it here to guarantee any recent metadata mutations to FB.subgroup are captured.
+sample_split <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(sample_split)) {
+  sample_obj <- sample_split[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_macro_umap <- DimPlot(sample_obj, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) +
