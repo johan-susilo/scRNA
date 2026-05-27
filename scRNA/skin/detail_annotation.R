@@ -223,8 +223,11 @@ save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_
 
 # --- 3B. PER-SAMPLE UMAPS ---
 message("Generating sample-specific UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# BOLT OPTIMIZATION: Use SplitObject before the loop to avoid repetitive subsetting
+# which is an O(N) operation per iteration. SplitObject does it once in O(N).
+sample_objs_list <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(sample_objs_list)) {
+  sample_obj <- sample_objs_list[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_umap <- DimPlot(sample_obj, label = TRUE, repel = TRUE, cols = f1_f8_colors) +
@@ -346,8 +349,11 @@ if(length(available_mucin) > 0) {
   
   save_dual_format(mucin_dotplot, file.path(dirs$mucin, "Mucin_DotPlot_Summary"), w = 10, h = 7)
 
-  for (sample_id in unique(FB.subgroup$orig.ident2)) {
-    sample_subset <- subset(FB.subgroup, subset = orig.ident2 == sample_id)
+  # BOLT OPTIMIZATION: Unconditionally split object immediately before the loop
+  # to prevent repetitive O(N) subset calls inside the loop.
+  sample_subsets_list <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+  for (sample_id in names(sample_subsets_list)) {
+    sample_subset <- sample_subsets_list[[sample_id]]
     if (ncol(sample_subset) > 0) {
       p_sample_dotplot <- DotPlot(sample_subset, features = available_mucin, dot.scale = 8) +
         theme_minimal() +
@@ -564,8 +570,11 @@ save_dual_format(p_macro_umap, file.path(dirs$umaps_global, "UMAP_MacroLineage_G
 
 # --- PLOT D: Per-Sample UMAPs by Macro Lineage ---
 message("Generating sample-specific Macro Lineage UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
+# BOLT OPTIMIZATION: Unconditionally split object immediately before the loop
+# to prevent repetitive O(N) subset calls inside the loop.
+sample_macro_list <- SplitObject(FB.subgroup, split.by = "orig.ident2")
+for (sample_id in names(sample_macro_list)) {
+  sample_obj <- sample_macro_list[[sample_id]]
   
   if (ncol(sample_obj) > 0) {
     p_sub_macro_umap <- DimPlot(sample_obj, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) +
