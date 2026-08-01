@@ -4,6 +4,8 @@
 # Example: Rscript ./pseudotime.R -r /home/johan/output/skin_pmh/TN.combined_dim30.rds -c 0,1,2,3 -o /home/johan/output/skin_pmh/pseudotime
 # Example: Rscript ./pseudotime.R -r TN.combined_dim30.rds --all_clusters -o output/pseudotime
 
+#Rscript /home/johan/pipeline/scRNA/skin/pseudotime.R  -r "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_detailed_annotated.rds"  --all_clusters  -o "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/pseudotime_global"
+
 Sys.time()
 
 suppressPackageStartupMessages({
@@ -76,29 +78,39 @@ message("Total clusters: ", length(unique(Idents(TN.combined))))
 # Determine which clusters to use
 if (opt$all_clusters) {
   message("Using ALL clusters for pseudotime analysis")
+  
+  # Ensure we use detailed labels
+  Idents(TN.combined) <- "Detailed_Label"
+  
   TN.subset <- TN.combined
-  selected_clusters <- sort(unique(Idents(TN.combined)))
+  selected_clusters <- as.character(unique(Idents(TN.combined)))
+  
 } else if (!is.null(opt$clusters)) {
-  # Parse cluster IDs from comma-separated string
-  cluster_ids <- as.numeric(strsplit(opt$clusters, ",")[[1]])
+  # Parse cluster IDs from comma-separated string (NO as.numeric)
+  cluster_ids <- trimws(strsplit(opt$clusters, ",")[[1]])
   message("Subsetting to clusters: ", paste(cluster_ids, collapse = ", "))
 
+  # Ensure we are using your detailed dictionary labels
+  Idents(TN.combined) <- "Detailed_Label"
+  
   TN.subset <- subset(TN.combined, idents = cluster_ids)
   selected_clusters <- cluster_ids
 
   if (ncol(TN.subset) == 0) {
     stop("No cells found in the specified clusters. Check cluster IDs.")
   }
-
   message("Subset contains ", ncol(TN.subset), " cells")
 } else {
   stop("Must specify either --clusters or --all_clusters")
 }
 
+
+TN.subset$clusters <- as.character(Idents(TN.subset))
+
 # Plot the subset
 message("\nGenerating UMAP plot of selected clusters...")
 p_umap <- DimPlot(TN.subset, reduction = "umap", label = TRUE, pt.size = 0.8) +
-  ggtitle(paste0("Selected Clusters for Pseudotime: ", paste(selected_clusters, collapse = ", ")))
+  ggtitle("Selected Clusters for Pseudotime")
 safe_save_pdf(p_umap, file.path(output_dir, "subset_umap.pdf"))
 
 # Rename clusters for clarity
@@ -108,12 +120,12 @@ names(cluster_names) <- levels(TN.subset)
 TN.subset <- RenameIdents(TN.subset, cluster_names)
 
 # Update metadata cluster labels
-if ("seurat_clusters" %in% colnames(TN.subset@meta.data)) {
-  original_levels <- levels(TN.subset@meta.data$seurat_clusters)
+if ("clusters" %in% colnames(TN.subset@meta.data)) {
+  original_levels <- levels(TN.subset@meta.data$clusters)
   new_levels <- paste0("C", selected_clusters)
   # Create mapping for all possible levels
   full_mapping <- setNames(paste0("C", 0:(length(original_levels)-1)), original_levels)
-  levels(TN.subset@meta.data$seurat_clusters) <- full_mapping[original_levels]
+  levels(TN.subset@meta.data$clusters) <- full_mapping[original_levels]
 }
 
 message("Cluster renaming complete")
@@ -153,59 +165,68 @@ message("CDS object created successfully")
 message("Cells: ", ncol(cds))
 message("Genes: ", nrow(cds))
 
-# Preprocessing and dimensionality reduction --------------------------------
-message("\n============================================================")
-message("Preprocessing and dimensionality reduction")
-message("============================================================")
+# ==============================================================================
+# Porting Seurat Embeddings to Monocle3
+# ==============================================================================
+message("\nImporting Harmony-integrated UMAP from Seurat...")
 
-message("Preprocessing CDS...")
-cds <- preprocess_cds(cds, num_dim = 50)
+# 1. Force the exact Seurat UMAP coordinates into Monocle3
+reducedDims(cds)[["UMAP"]] <- TN.subset[["umap"]]@cell.embeddings
 
-message("Reducing dimensions with UMAP...")
-cds <- reduce_dimension(cds)
+# 2. Force the exact detailed text labels as the Monocle3 clusters
+cds@clusters$UMAP$clusters <- as.factor(TN.subset$Detailed_Label)
 
-message("Plotting CDS UMAP colored by cluster...")
-p_cds_cluster <- plot_cells(cds, color_cells_by = "seurat_clusters",
-                            label_cell_groups = TRUE,
-                            label_leaves = FALSE,
-                            label_branch_points = FALSE,
-                            graph_label_size = 3) +
-  ggtitle("Monocle3 UMAP - Colored by Cluster")
+# 3. Force a single partition (This prevents broken/disconnected graphs)
+recreate_partition <- c(rep(1, length(cds@clusters$UMAP$clusters)))
+names(recreate_partition) <- names(cds@clusters$UMAP$clusters)
+recreate_partition <- as.factor(recreate_partition)
+cds@clusters$UMAP$partitions <- recreate_partition
 
-safe_save_pdf(p_cds_cluster, file.path(output_dir, "monocle3_umap_clusters.pdf"))
+# ==============================================================================
+# Learning the Trajectory Graph
+# ==============================================================================
+message("\nLearning trajectory graph on imported UMAP...")
 
-# Cluster cells and learn graph --------------------------------------------
-message("\n============================================================")
-message("Learning trajectory graph")
-message("============================================================")
-
-message("Clustering cells...")
-cds <- cluster_cells(cds)
-
-message("Learning trajectory graph...")
-cds <- learn_graph(cds)
+# Run learn_graph directly on the imported Seurat layout
+cds <- learn_graph(cds, use_partition = FALSE)
 
 message("Plotting trajectory...")
 p_trajectory <- plot_cells(cds,
-                          color_cells_by = "seurat_clusters",
+                          color_cells_by = "cluster",  # Uses the imported Detailed_Labels
                           label_groups_by_cluster = FALSE,
                           label_leaves = TRUE,
                           label_branch_points = TRUE,
-                          graph_label_size = 3) +
-  ggtitle("Learned Trajectory")
+                          graph_label_size = 6,
+                          group_label_size = 6) +
+  ggtitle("Learned Trajectory (Seurat UMAP)") +
+  theme(
+    text = element_text(size = 18),                    # <-- Global text size
+    axis.title = element_text(size = 20, face = "bold"), # <-- Axis titles (UMAP 1 / UMAP 2)
+    axis.text = element_text(size = 16),               # <-- Axis tick numbers
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5)
+  )
 
 safe_save_pdf(p_trajectory, file.path(output_dir, "trajectory_by_cluster.pdf"))
 
-# Order cells in pseudotime -------------------------------------------------
-message("\n============================================================")
+
+
 message("Ordering cells in pseudotime")
-message("============================================================")
 
-message("NOTE: Automatic root cell selection...")
-message("Monocle3 will select root automatically based on the earliest cluster")
+# Set the root to the FIRST cluster you listed in your -c argument
+root_cluster <- selected_clusters[1]
+message("Setting root cluster to: ", root_cluster)
 
-# Order cells - Monocle3 will pick root automatically
-cds <- order_cells(cds)
+# Extract the specific cell barcodes that belong to this root cluster
+root_cells <- rownames(colData(cds)[as.character(colData(cds)$clusters) == as.character(root_cluster), ])
+
+if (length(root_cells) == 0) {
+  stop("Could not find any cells for the root cluster: ", root_cluster)
+}
+
+# Order cells non-interactively using the extracted root_cells
+cds <- order_cells(cds, root_cells = root_cells)
 
 message("Pseudotime ordering complete")
 
@@ -217,21 +238,39 @@ p_pseudotime <- plot_cells(cds,
                            label_leaves = FALSE,
                            label_branch_points = FALSE,
                            label_roots = TRUE,
-                           graph_label_size = 3) +
-  ggtitle("Cells Ordered by Pseudotime")
+                           graph_label_size = 6,
+group_label_size = 6) +
+  ggtitle("Cells Ordered by Pseudotime") +
+  theme(
+    text = element_text(size = 18),                    # <-- Global text size
+    axis.title = element_text(size = 20, face = "bold"), # <-- Axis titles (UMAP 1 / UMAP 2)
+    axis.text = element_text(size = 16),               # <-- Axis tick numbers
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5)
+  )
 
 safe_save_pdf(p_pseudotime, file.path(output_dir, "pseudotime.pdf"))
 
 # Combined trajectory plots
 message("\nGenerating combined trajectory plots...")
 p_combined <- plot_cells(cds,
-                         color_cells_by = "seurat_clusters",
+                         color_cells_by = "clusters",
                          label_groups_by_cluster = TRUE,
                          label_leaves = TRUE,
                          label_branch_points = TRUE,
                          label_roots = TRUE,
-                         graph_label_size = 3) +
-  ggtitle("Trajectory with Cluster Labels")
+                         graph_label_size = 6,
+group_label_size = 6) +
+  ggtitle("Trajectory with Cluster Labels") + 
+  theme(
+    text = element_text(size = 18),                    # <-- Global text size
+    axis.title = element_text(size = 20, face = "bold"), # <-- Axis titles (UMAP 1 / UMAP 2)
+    axis.text = element_text(size = 16),               # <-- Axis tick numbers
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5)
+  )
 
 safe_save_pdf(p_combined, file.path(output_dir, "trajectory_combined.pdf"))
 
@@ -243,8 +282,17 @@ if ("orig.ident1" %in% colnames(colData(cds))) {
                             label_cell_groups = FALSE,
                             label_leaves = FALSE,
                             label_branch_points = TRUE,
-                            graph_label_size = 3) +
-    ggtitle("Trajectory Colored by Sample")
+                            graph_label_size = 6,
+group_label_size = 6) +
+    ggtitle("Trajectory Colored by Sample") +
+    theme(
+    text = element_text(size = 18),                    # <-- Global text size
+    axis.title = element_text(size = 20, face = "bold"), # <-- Axis titles (UMAP 1 / UMAP 2)
+    axis.text = element_text(size = 16),               # <-- Axis tick numbers
+    legend.title = element_text(size = 18, face = "bold"),
+    legend.text = element_text(size = 16),
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5)
+  )
 
   safe_save_pdf(p_by_sample, file.path(output_dir, "trajectory_by_sample.pdf"))
 }
@@ -260,9 +308,14 @@ saveRDS(cds, file.path(output_dir, "monocle3_cds.rds"))
 
 # Extract pseudotime values and save
 message("Extracting pseudotime values...")
+
+# Extract values and convert Inf to NA for unreachable cells
+p_time <- pseudotime(cds)
+p_time[is.infinite(p_time)] <- NA 
+
 pseudotime_df <- data.frame(
   cell = colnames(cds),
-  pseudotime = pseudotime(cds),
+  pseudotime = p_time,
   cluster = colData(cds)$seurat_clusters
 )
 
@@ -278,10 +331,10 @@ message("Pseudotime values saved")
 message("\n============================================================")
 message("Pseudotime Summary Statistics")
 message("============================================================")
-message("Min pseudotime: ", round(min(pseudotime(cds), na.rm = TRUE), 3))
-message("Max pseudotime: ", round(max(pseudotime(cds), na.rm = TRUE), 3))
-message("Mean pseudotime: ", round(mean(pseudotime(cds), na.rm = TRUE), 3))
-message("Median pseudotime: ", round(median(pseudotime(cds), na.rm = TRUE), 3))
+message("Min pseudotime: ", round(min(pseudotime_df$pseudotime, na.rm = TRUE), 3))
+message("Max pseudotime: ", round(max(pseudotime_df$pseudotime, na.rm = TRUE), 3))
+message("Mean pseudotime: ", round(mean(pseudotime_df$pseudotime, na.rm = TRUE), 3))
+message("Median pseudotime: ", round(median(pseudotime_df$pseudotime, na.rm = TRUE), 3))
 
 # Pseudotime by cluster
 pseudotime_by_cluster <- pseudotime_df %>%
@@ -298,9 +351,15 @@ write.csv(pseudotime_by_cluster, file.path(output_dir, "pseudotime_by_cluster.cs
 message("\nPseudotime statistics by cluster:")
 print(pseudotime_by_cluster)
 
-# Create violin plot of pseudotime by cluster
+# ==============================================================================
+# Create Violin Plot
+# ==============================================================================
 message("\nGenerating pseudotime violin plot...")
-p_violin <- ggplot(pseudotime_df, aes(x = cluster, y = pseudotime, fill = cluster)) +
+
+# Strictly filter out NA values so ggplot does not crash
+plot_df <- pseudotime_df[!is.na(pseudotime_df$pseudotime), ]
+
+p_violin <- ggplot(plot_df, aes(x = cluster, y = pseudotime, fill = cluster)) +
   geom_violin() +
   geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) +
   theme_bw() +
@@ -341,9 +400,17 @@ tryCatch({
     top_genes <- head(sig_genes$gene_short_name, 9)
 
     p_genes <- plot_genes_in_pseudotime(cds[top_genes,],
-                                        color_cells_by = "seurat_clusters",
+                                        color_cells_by = "clusters",
                                         min_expr = 0.5,
-                                        ncol = 3)
+                                        ncol = 3) +
+  theme(
+    text = element_text(size = 20),                    # <-- Makes gene names (strip text) larger
+    axis.title = element_text(size = 22, face = "bold"),
+    axis.text = element_text(size = 16),
+    legend.position = "bottom",                        # <-- Moves legend to bottom to save horizontal space
+    legend.text = element_text(size = 16),
+    strip.text = element_text(size = 22, face = "bold") # <-- Makes the Gene Names at the top of each box much larger
+  )
 
     safe_save_pdf(p_genes, file.path(output_dir, "top_pseudotime_genes.pdf"), w = 18, h = 18)
   }

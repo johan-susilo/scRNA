@@ -6,7 +6,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-# Rscript /home/johan/pipeline/scRNA/skin/cellchat_analysis.R --macro "/home/johan/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/macrophage/processed/macrophage_detailed_annotated.rds"   --fibro "/home/johan/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_annotated_full.rds"   --outdir "/home/johan/johan/output/skin_pmh_harmony_sctransform2/cellchat/fibro_macro"
+# Rscript /home/johan/pipeline/scRNA/skin/cellchat_analysis.R --macro "/home/johan/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/macrophage/processed/macrophage_detailed_annotated.rds"   --fibro "/home/johan/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_detailed_annotated.rds"   --outdir "/home/johan/johan/output/skin_pmh_harmony_sctransform2/cellchat/fibro_macro"
 
 # ==============================================================================
 # 1. SETUP COMMAND LINE ARGUMENTS
@@ -26,8 +26,8 @@ message("Loading objects...")
 fibro <- readRDS(opt$fibro)
 macro <- readRDS(opt$macro)
 
-if (!"SingleR_label" %in% colnames(fibro@meta.data)) {
-  stop("ERROR: Fibroblast object is missing 'SingleR_label'. Use the file ending in '_annotated_final.rds' or '_detailed_annotated.rds'.")
+if (!"Detailed_Label" %in% colnames(fibro@meta.data)) {
+  stop("ERROR: Fibroblast object is missing 'Detailed_Label'. Use the file ending in '_annotated_final.rds' or '_detailed_annotated.rds'.")
 }
 
 # ==============================================================================
@@ -64,7 +64,7 @@ meta_macro <- macro@meta.data
 rownames(meta_fibro) <- paste0("FB_", rownames(meta_fibro))
 rownames(meta_macro) <- paste0("MAC_", rownames(meta_macro))
 
-cols_to_keep <- c("orig.ident1", "orig.ident2", "Condition", "SingleR_label")
+cols_to_keep <- c("orig.ident1", "orig.ident2", "Condition", "Detailed_Label")
 meta_fibro <- meta_fibro[, cols_to_keep, drop = FALSE]
 meta_macro <- meta_macro[, cols_to_keep, drop = FALSE]
 combined_meta <- rbind(meta_fibro, meta_macro)
@@ -73,7 +73,7 @@ message("Building new combined Seurat object...")
 combined <- CreateSeuratObject(counts = combined_counts, meta.data = combined_meta)
 combined <- NormalizeData(combined, verbose = FALSE)
 
-Idents(combined) <- "SingleR_label"
+Idents(combined) <- "Detailed_Label"
 
 rm(fibro, macro, counts_fibro, counts_macro)
 gc()
@@ -92,7 +92,7 @@ data.input <- tryCatch({
 meta.data <- combined@meta.data
 
 # Create CellChat using the raw matrix and metadata directly!
-cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "SingleR_label")
+cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "Detailed_Label")
 
 cellchat@DB <- CellChatDB.human 
 CellChatDB.use <- subsetDB(CellChatDB.human, search = "Secreted Signaling")
@@ -108,26 +108,81 @@ cellchat <- computeCommunProbPathway(cellchat)
 cellchat <- aggregateNet(cellchat)
 
 # ==============================================================================
-# 5. VISUALIZATIONS
+# 5. VISUALIZATIONS — PMH DISEASE-FOCUSED
 # ==============================================================================
 message("Saving plots to: ", opt$outdir)
 
-fibro_groups <- as.character(unique(combined_meta$SingleR_label[grepl("^F", combined_meta$SingleR_label)]))
-macro_groups <- as.character(unique(combined_meta$SingleR_label[grepl("^M", combined_meta$SingleR_label)]))
+# Define groups (same pattern as original, but split healthy vs disease)
+fibro_groups         <- as.character(unique(combined_meta$Detailed_Label[grepl("^F", combined_meta$Detailed_Label)]))
+fibro_disease_groups <- as.character(unique(combined_meta$Detailed_Label[grepl("^F", combined_meta$Detailed_Label) & grepl("Disease", combined_meta$Detailed_Label)]))
+macro_groups         <- as.character(unique(combined_meta$Detailed_Label[grepl("^M", combined_meta$Detailed_Label)]))
 
+if ("F7_Myofibroblast" %in% combined_meta$Detailed_Label) {
+  fibro_disease_groups <- c(fibro_disease_groups, "F7_Myofibroblast")
+}
+
+# --- Original broad plots (keep these) ---
 pdf(file.path(opt$outdir, "Fibro_to_Macro_Crosstalk.pdf"), width = 12, height = 8)
-print(netVisual_bubble(cellchat, sources.use = fibro_groups, targets.use = macro_groups) + 
+print(netVisual_bubble(cellchat, sources.use = fibro_groups, targets.use = macro_groups) +
       ggtitle("Signals: Fibroblasts -> Macrophages"))
 dev.off()
 
 pdf(file.path(opt$outdir, "Macro_to_Fibro_Crosstalk.pdf"), width = 12, height = 8)
-print(netVisual_bubble(cellchat, sources.use = macro_groups, targets.use = fibro_groups) + 
+print(netVisual_bubble(cellchat, sources.use = macro_groups, targets.use = fibro_groups) +
       ggtitle("Signals: Macrophages -> Fibroblasts"))
 dev.off()
 
-pdf(file.path(opt$outdir, "Interaction_Network_Circle.pdf"), width = 10, height = 10)
-netVisual_circle(cellchat@net$count, weight.scale = T, label.edge = F, title.name = "Number of interactions")
+disease_groups <- c(fibro_disease_groups, macro_groups)
+disease_idx    <- which(rownames(cellchat@net$count) %in% disease_groups)
+
+pdf(file.path(opt$outdir, "PMH_Interaction_Network_Circle_Disease.pdf"), width = 10, height = 10)
+netVisual_circle(
+  cellchat@net$count[disease_idx, disease_idx],
+  weight.scale = T,
+  label.edge   = F,
+  title.name   = "Number of interactions (PMH disease groups only)"
+)
 dev.off()
+
+# NEW — also plot interaction strength (weight), not just count
+pdf(file.path(opt$outdir, "PMH_Interaction_Strength_Circle_Disease.pdf"), width = 10, height = 10)
+netVisual_circle(
+  cellchat@net$weight[disease_idx, disease_idx],
+  weight.scale = T,
+  label.edge   = F,
+  title.name   = "Interaction strength (PMH disease groups only)"
+)
+dev.off()
+
+# --- NEW: PMH disease-focused plots (disease fibroblasts only, significant only) ---
+pdf(file.path(opt$outdir, "PMH_Fibro_Disease_to_Macro.pdf"), width = 12, height = 8)
+print(netVisual_bubble(cellchat,
+      sources.use  = fibro_disease_groups,
+      targets.use  = macro_groups,
+      remove.isolate = TRUE,
+      thresh = 0.05) +
+      ggtitle("PMH: Disease Fibroblasts -> Macrophages"))
+dev.off()
+
+pdf(file.path(opt$outdir, "PMH_Macro_to_Fibro_Disease.pdf"), width = 12, height = 8)
+print(netVisual_bubble(cellchat,
+      sources.use  = macro_groups,
+      targets.use  = fibro_disease_groups,
+      remove.isolate = TRUE,
+      thresh = 0.05) +
+      ggtitle("PMH: Macrophages -> Disease Fibroblasts"))
+dev.off()
+
+# --- NEW: Top interactions table ---
+df_fibro_to_macro <- subsetCommunication(cellchat,
+  sources.use = fibro_disease_groups,
+  targets.use = macro_groups)
+df_macro_to_fibro <- subsetCommunication(cellchat,
+  sources.use = macro_groups,
+  targets.use = fibro_disease_groups)
+
+write.csv(df_fibro_to_macro, file.path(opt$outdir, "PMH_FibroDisease_to_Macro_interactions.csv"), row.names = FALSE)
+write.csv(df_macro_to_fibro, file.path(opt$outdir, "PMH_Macro_to_FibroDisease_interactions.csv"), row.names = FALSE)
 
 saveRDS(cellchat, file.path(opt$outdir, "fibro_macro_cellchat.rds"))
 message("Analysis Complete!")

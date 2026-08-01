@@ -45,7 +45,7 @@ run_and_save_deseq2 <- function(counts_matrix, meta, comparison_name, out_dir, t
         TRUE ~ "Not Significant"
       )
     ) %>%
-    select(gene, everything()) %>%
+    dplyr::select(gene, everything()) %>%
     arrange(padj)
   
   # Save CSV
@@ -74,18 +74,27 @@ for (cell_type in cell_types) {
   message(paste("=== Processing Cell Type:", toupper(cell_type), "==="))
   message(paste("========================================================"))
   
-  rds_path <- file.path(base_dir, cell_type, "processed", paste0(cell_type, "_subset_processed.rds"))
-  out_dir <- file.path(base_dir, cell_type, "dge_pseudobulk")
-  if (!dir.exists(out_dir)) { dir.create(out_dir, recursive = TRUE) }
+  annotated_path <- file.path(base_dir, cell_type, "processed", paste0(cell_type, "_detailed_annotated.rds"))
+  processed_path <- file.path(base_dir, cell_type, "processed", paste0(cell_type, "_subset_processed.rds"))
   
-  if (!file.exists(rds_path)) {
-    message(paste("WARNING: Could not find RDS file at", rds_path, "- Skipping."))
+  if (file.exists(annotated_path)) {
+    message(paste("   -> Loading annotated RDS for", cell_type))
+    sub_obj <- readRDS(annotated_path)
+    cluster_col <- "Detailed_Label"
+  } else if (file.exists(processed_path)) {
+    message(paste("   -> Loading basic processed RDS for", cell_type))
+    sub_obj <- readRDS(processed_path)
+    cluster_col <- "seurat_clusters"
+  } else {
+    message(paste("WARNING: Could not find any processed RDS for", cell_type, "- Skipping."))
     next
   }
   
-  # 1. Load Object Once
-  sub_obj <- readRDS(rds_path)
   sub_obj$Condition <- factor(sub_obj$Condition, levels = c("Healthy", "PMH"))
+
+  out_dir <- file.path(base_dir, cell_type, "dge_pseudobulk")
+  if (!dir.exists(out_dir)) { dir.create(out_dir, recursive = TRUE) }
+  
   
   # ==============================================================================
   # PART A: "All Combined" DGE (The Macro View)
@@ -115,14 +124,18 @@ for (cell_type in cell_types) {
   # ==============================================================================
   message("\n--- Aggregating by Sub-cluster (Micro View) ---")
   pb_sub <- AggregateExpression(sub_obj, assays = "RNA", slot = "counts", 
-                                group.by = c("seurat_clusters", "orig.ident2", "Condition"), return.seurat = FALSE)$RNA
+                                group.by = c(cluster_col, "orig.ident2", "Condition"), return.seurat = FALSE)$RNA
   
-  clusters <- levels(sub_obj$seurat_clusters)
+  # Safely extract the cluster levels whether it's Detailed_Label or seurat_clusters
+  clusters <- levels(as.factor(sub_obj@meta.data[[cluster_col]]))
   all_sub_cols <- colnames(pb_sub)
   
   for (cluster_id in clusters) {
-    # Isolate columns for this specific cluster (safely handling Seurat's "g" prefix)
-    cluster_cols <- all_sub_cols[grepl(paste0("^g?", cluster_id, "_"), all_sub_cols)]
+    
+    seurat_safe_id <- str_replace_all(cluster_id, "_", "-")
+    
+    # Isolate columns for this specific cluster using the dashed ID
+    cluster_cols <- all_sub_cols[grepl(paste0("^g?", seurat_safe_id, "_"), all_sub_cols)]
     
     if (length(cluster_cols) == 0) { next }
     
@@ -131,7 +144,9 @@ for (cell_type in cell_types) {
     meta_sub <- data.frame(pseudobulk_id = cluster_cols) %>%
       mutate(
         condition = str_extract(pseudobulk_id, "(PMH|Healthy)$"),
-        sample_id = str_extract(pseudobulk_id, "(?<=_).*?(?=_(PMH|Healthy)$)") # Extracts HTY131, AC259, etc.
+        # Use the dashed ID to correctly extract the sample name
+        sample_id = str_remove(pseudobulk_id, "_?(PMH|Healthy)$") %>% 
+                    str_remove(paste0("^g?", seurat_safe_id, "_"))
       )
     rownames(meta_sub) <- meta_sub$pseudobulk_id
     meta_sub$condition <- factor(meta_sub$condition, levels = c("Healthy", "PMH"))
@@ -139,7 +154,7 @@ for (cell_type in cell_types) {
     run_and_save_deseq2(
       counts_matrix = counts_sub, 
       meta = meta_sub, 
-      comparison_name = paste0(cell_type, "_subcluster_", cluster_id), 
+      comparison_name = paste0(cell_type, "_subcluster_", cluster_id), # Keep the original name for the file!
       out_dir = out_dir, 
       title_prefix = paste(tools::toTitleCase(cell_type), "Cluster", cluster_id)
     )

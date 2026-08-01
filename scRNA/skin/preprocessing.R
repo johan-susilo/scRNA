@@ -1090,7 +1090,7 @@ generate_plots <- function(TN.combined, chosen_res = 0.4) {
     # Print all labels, regardless of how small the slice is
     geom_text(aes(label = as.character(Cluster), size = Proportion), 
               position = position_stack(vjust = 0.5), color = "black") +
-    # TRICK: Stretch the range down to 0.5. 1% slices will get 0.5 size text (tiny specks).
+    # Stretch the range down to 0.5. 1% slices will get 0.5 size text (tiny specks).
     scale_size_continuous(range = c(0.5, 4), guide = "none") + 
     theme_minimal(base_size = 15) +
     xlab("Condition") +

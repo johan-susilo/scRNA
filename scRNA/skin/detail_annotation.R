@@ -1,20 +1,31 @@
 suppressPackageStartupMessages({
+  library(optparse)
   library(Seurat)
   library(ggplot2)
   library(patchwork)
-  library(SingleR)
-  library(SingleCellExperiment)
   library(dplyr)
+  library(pheatmap)
 })
 
 set.seed(42)
 
-# ==============================================================================
-# 1. SETUP, FOLDER ORGANIZATION & LOAD DATA
-# ==============================================================================
-base_out_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/haniffa_analysis/"
+#Rscript /home/johan/pipeline/scRNA/skin/detail_annotation.R -c fibroblast  -i /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_subset_processed.rds -o /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster
+# Rscript detail_annotation.R -c macrophage  -i /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/macrophage/processed/macrophage_subset_processed.rds -o /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster
+# Rscript detail_annotation.R -c mast_cells -i /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/mast_cell/processed/mast_cell_subset_processed.rds -o /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster
 
-# Create highly organized subdirectories
+
+# ==============================================================================
+# 1. COMMAND LINE ARGUMENTS (SNAKEMAKE INTEGRATION)
+# ==============================================================================
+option_list <- list(
+  make_option(c("-i", "--input"), type="character", help="Path to the subset RDS object"),
+  make_option(c("-c", "--celltype"), type="character", help="The cell type being processed (e.g., 'fibroblast' or 'macrophage')"),
+  make_option(c("-o", "--outdir"), type="character", help="Base subset_cluster output directory")
+)
+opt <- parse_args(OptionParser(option_list=option_list))
+
+# Create highly organized subdirectories dynamically
+base_out_dir <- file.path(opt$outdir, opt$celltype, "haniffa_analysis")
 dirs <- list(
   umaps_global  = file.path(base_out_dir, "1_UMAPs", "Global"),
   umaps_sample  = file.path(base_out_dir, "1_UMAPs", "Per_Sample"),
@@ -26,618 +37,408 @@ dirs <- list(
 )
 lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 
-message("Loading mathematically cleaned fibroblast object...")
-FB.subgroup <- readRDS("/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_subset_processed.rds")
 
-# Ensure Default Assay is RNA
-DefaultAssay(FB.subgroup) <- "RNA"
 
-save_dual_format <- function(plot_obj, file_path_no_ext, w = 10, h = 8) {
-  pdf(paste0(file_path_no_ext, ".pdf"), width = w, height = h)
-  print(plot_obj)
-  dev.off()
+# ==============================================================================
+# 2. HELPER FUNCTIONS
+# ==============================================================================
+
+# Safely save both PDF and high-resolution PNG
+save_plot <- function(plot_obj, out_dir, base_filename, w = 10, h = 6) {
+  pdf_path <- file.path(out_dir, paste0(base_filename, ".pdf"))
+  png_path <- file.path(out_dir, paste0(base_filename, ".png"))
   
-  png(paste0(file_path_no_ext, ".png"), width = w, height = h, units = "in", res = 300)
-  print(plot_obj)
-  dev.off()
+  tryCatch({ pdf(pdf_path, width = w, height = h); print(plot_obj); dev.off() }, error = function(e) {})
+  tryCatch({ png(png_path, width = w, height = h, units = "in", res = 300); print(plot_obj); dev.off() }, error = function(e) {})
 }
 
+# Generate clean, uniform proportion barplots (Modified to accept your dictionary colors)
+create_proportion_barplot <- function(seurat_obj, group_col, title, custom_colors = NULL) {
+  prop_df <- as.data.frame(prop.table(table(Idents(seurat_obj), seurat_obj[[group_col]][[1]]), margin = 2))
+  colnames(prop_df) <- c("Cluster", "Group", "Proportion")
+  
+  p <- ggplot(prop_df %>% filter(Proportion > 0), aes(x = Group, y = Proportion, fill = Cluster)) +
+    geom_bar(stat = "identity", color = "black", linewidth = 0.2) +
+    # Removed the text overlay as it gets too cluttered with 22 detailed clusters
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold", color = "black"),
+          axis.text.y = element_text(color = "black"),
+          plot.title = element_text(hjust = 0.5, face = "bold")) + 
+    scale_y_continuous(labels = scales::percent) +
+    ggtitle(title)
+  
+  # Apply detailed annotation colors if provided
+  if (!is.null(custom_colors)) {
+    p <- p + scale_fill_manual(values = custom_colors)
+  }
+  
+  return(p)
+}
+
+message(paste("Loading mathematically cleaned", toupper(opt$celltype), "object..."))
+seu_obj <- readRDS(opt$input)
+DefaultAssay(seu_obj) <- "RNA"
+
 # ==============================================================================
-# 2. THE DICTIONARIES & COLORS
+# 2. DICTIONARIES & COLORS (FIBROBLAST & MACROPHAGE)
 # ==============================================================================
 biological_dictionary <- list(
-  # ==========================================
-  # F1: SUPERFICIAL
-  # ==========================================
   "F1_Superficial_Healthy" = c("APCDD1", "COL18A1", "COL23A1", "COL13A1", "COMP", "NKD2", "RSPO1", "AXIN2"),
   "F1_Superficial_Disease" = c("CRABP1", "CYP26B1", "TNFRSF21", "CXCL1", "WNT5A", "COL18A1", "COL23A1", "COL13A1", "NKD2", "AXIN2", "RSPO1"),
-
-  # ==========================================
-  # F2: UNIVERSAL / RETICULAR
-  # ==========================================
   "F2_Reticular_Healthy" = c("CD34", "PI16", "MFAP5", "DPP4", "PCOLCE2", "LGR5", "SLPI", "CD70", "CTHRC1"),
   "F2_Reticular_Disease" = c("PI16", "DPP4", "PCOLCE2", "MFAP5", "CD70", "LGR5"),
-
-  # ==========================================
-  # F2/F3: PERIVASCULAR
-  # ==========================================
   "F2_F3_Perivascular_Healthy" = c("CXCL12", "APOE", "EFEMP1", "APOC1", "C7", "PLA2G2A", "PPARG", "MYOC", "GDF10"),
   "F2_F3_Perivascular_Disease" = c("CXCL12", "APOE", "C7", "PLA2G2A", "EFEMP1", "GDF10", "MYOC"),
-
-  # ==========================================
-  # F3: FRC-LIKE (CCL19+)
-  # ==========================================
   "F3_FRC_like_Healthy" = c("CCL19", "CD74", "CH25H", "TNFSF13B", "IL33", "IRF8", "IL15", "VCAM1", "HLA-DRB1", "HLA-DRA"),
   "F3_FRC_like_Disease" = c("CCL19", "CD74", "CH25H", "TNFSF13B", "IL33", "HLA-DRA", "IRF8", "COX4I2", "RBP5", "ADAMDEC1", "CXCL9", "CXCL10", "APOE", "CXCL12"),
-
-  # ==========================================
-  # F4: HAIR FOLLICLE ASSOCIATED
-  # ==========================================
   "F4_HF_DPEP_Healthy" = c("DPEP1", "MYL4", "MEF2C", "COL11A1"),
   "F4_HF_DPEP_Disease" = c("MEF2C", "MYL4", "COL11A1", "POSTN", "DPEP1"),
-  
   "F4_HF_TNN_Healthy" = c("TNN", "COCH", "TNMD", "MKX", "NRG3", "SLITRK6"),
   "F4_HF_TNN_Disease" = c("COCH", "CRABP1", "COL24A1", "RSPO4", "SLITRK6", "NRG3", "MKX", "TNMD"),
-  
   "F4_HF_DP_Healthy" = c("CORIN", "HHIP", "BMP7", "WNT5A", "LEF1"),
   "F4_HF_DP_Disease" = c("CRABP1", "COL24A1", "RSPO4", "RSPO3", "BMP7", "WNT5A", "LEF1", "SOX18", "HHIP"),
-
-  # ==========================================
-  # F5: SCHWANN-LIKE
-  # ==========================================
   "F5_Schwann_NGFR_Healthy" = c("NGFR", "ITGA6", "SCN7A", "CDH19", "CLDN1", "SFRP4", "TENM2"),
   "F5_Schwann_NGFR_Disease" = c("NGFR", "TM4SF1", "SFRP4", "ANGPTL7", "ITGA6", "CDH19", "CLDN1", "EBF2", "OLFM2", "SCN7A"),
-  
   "F5_Schwann_RAMP1_Healthy" = c("RAMP1", "RELN", "PLEKHA6", "IGFBP2", "FGFBP2", "SCN7A"),
   "F5_Schwann_RAMP1_Disease" = c("RAMP1", "IGFBP2", "RELN", "COL26A1", "PLEKHA6", "FMO2", "FGFBP2"),
-
-  # ==========================================
-  # F6, F7, F8: MYOFIBROBLASTS (Disease Only)
-  # ==========================================
   "F6_Inflammatory_Myo_Disease" = c("IL11", "IL24", "CXCL5", "CXCL6", "CXCL8", "MMP9", "WNT2", "COL10A1", "MMP1", "MMP3"),
   "F7_Myofibroblast" = c("ACTA2", "TAGLN", "CTHRC1", "RUNX2", "KIF26B", "SULF1", "ADAM12", "COL8A1", "LRRC15", "CCN4", "ASPN", "POSTN", "TNC", "COL3A1", "WNT2", "COL10A1"),
   "F8_Fascia_like_Myo_Disease" = c("ACAN", "ITGA10", "CDH2", "DPP4", "CCN3"),
-  
-  # ==========================================
-  # FASCIA
-  # ==========================================
   "F_Fascia_Disease" = c("ITGA10", "CCN3", "DPP4", "CDH13", "PRG4", "CRTAC1", "PCOLCE2", "LGR5")
 )
 
-validation_dictionary <- biological_dictionary
-validation_dictionary[["QC_Stress_Markers"]] <- c("MT2A", "MT1M", "MT1X", "HSP90AA1", "JUNB", "GADD45B", "IER3")
+f1_f8_order <- c("F1_Superficial_Healthy", "F1_Superficial_Disease", "F2_Reticular_Healthy", "F2_Reticular_Disease", "F2_F3_Perivascular_Healthy", "F2_F3_Perivascular_Disease", "F3_FRC_like_Healthy", "F3_FRC_like_Disease", "F4_HF_DPEP_Healthy", "F4_HF_DPEP_Disease", "F4_HF_TNN_Healthy", "F4_HF_TNN_Disease", "F4_HF_DP_Healthy", "F4_HF_DP_Disease", "F5_Schwann_NGFR_Healthy", "F5_Schwann_NGFR_Disease", "F5_Schwann_RAMP1_Healthy", "F5_Schwann_RAMP1_Disease", "F6_Inflammatory_Myo_Disease", "F7_Myofibroblast", "F8_Fascia_like_Myo_Disease", "F_Fascia_Disease")
 
 f1_f8_colors <- c(
-  # F1: Superficial (Blues)
-  "F1_Superficial_Healthy" = "#A6CEE3", # Light Blue
-  "F1_Superficial_Disease" = "#1F77B4", # Dark Blue
-  
-  # F2: Universal / Reticular (Greens)
-  "F2_Reticular_Healthy" = "#B2DF8A", # Light Green
-  "F2_Reticular_Disease" = "#33A02C", # Dark Green
-  
-  # F2/F3: Perivascular (Oranges)
-  "F2_F3_Perivascular_Healthy" = "#FDBF6F", # Light Orange
-  "F2_F3_Perivascular_Disease" = "#FF7F00", # Dark Orange
-  
-  # F3: FRC-like (Purples)
-  "F3_FRC_like_Healthy" = "#CAB2D6", # Light Purple
-  "F3_FRC_like_Disease" = "#6A3D9A", # Dark Purple
-  
-  # F4: Hair Follicle (Yellows/Browns/Reds)
-  "F4_HF_DPEP_Healthy" = "#FFFF99", # Pale Yellow
-  "F4_HF_DPEP_Disease" = "#B15928", # Brown
-  "F4_HF_TNN_Healthy"  = "#FFEDA0", # Sand
-  "F4_HF_TNN_Disease"  = "#D95F0E", # Rust
-  "F4_HF_DP_Healthy"   = "#E31A1C", # Red 
-  "F4_HF_DP_Disease"   = "#bd0026", # Dark Red
-  
-  # F5: Schwann-like (Pinks/Magentas)
-  "F5_Schwann_NGFR_Healthy"  = "#FBB4AE", # Light Pink
-  "F5_Schwann_NGFR_Disease"  = "#E7298A", # Magenta
-  "F5_Schwann_RAMP1_Healthy" = "#F1EEF6", # Very pale purple/pink
-  "F5_Schwann_RAMP1_Disease" = "#CE1256", # Deep Cherry
-  
-  # F6, F7, F8: Disease-Specific Myofibroblasts
-  "F6_Inflammatory_Myo_Disease" = "#006D2C", # Dark Cyan/Green
-  "F7_Myofibroblast"    = "#c73333", # Almost Black
-  "F8_Fascia_like_Myo_Disease"  = "#810F7C", # Dark Eggplant
-  
+  # F1
+  "F1_Superficial_Healthy"  = "#A6CEE3",
+  "F1_Superficial_Disease"  = "#1F78B4",
+
+  # F2 Reticular
+  "F2_Reticular_Healthy"    = "#B2DF8A",
+  "F2_Reticular_Disease"    = "#33A02C",
+
+  # F2/F3 Perivascular
+  "F2_F3_Perivascular_Healthy" = "#FDBF6F",
+  "F2_F3_Perivascular_Disease" = "#FF7F00",
+
+  # F3 FRC-like
+  "F3_FRC_like_Healthy"     = "#CAB2D6",
+  "F3_FRC_like_Disease"     = "#6A3D9A",
+
+  # F4 HF DPEP
+  "F4_HF_DPEP_Healthy"      = "#8DD3C7",
+  "F4_HF_DPEP_Disease"      = "#1B9E77",
+
+  # F4 HF TNN
+  "F4_HF_TNN_Healthy"       = "#c59a82",
+  "F4_HF_TNN_Disease"       = "#B15928",
+
+  # F4 HF DP
+  "F4_HF_DP_Healthy"        = "#f5fccd",
+  "F4_HF_DP_Disease"        = "#c4c000",
+
+  # F5 Schwann NGFR
+  "F5_Schwann_NGFR_Healthy" = "#FBB4AE",
+  "F5_Schwann_NGFR_Disease" = "#E7298A",
+
+  # F5 Schwann RAMP1
+  "F5_Schwann_RAMP1_Healthy" = "#D9D9D9",
+  "F5_Schwann_RAMP1_Disease" = "#636363",
+
+  # F6
+  "F6_Inflammatory_Myo_Disease" = "#66A61E",
+
+  # F7
+  "F7_Myofibroblast" = "#E41A1C",
+
+  # F8
+  "F8_Fascia_like_Myo_Disease" = "#A65628",
+
   # Fascia
-  "F_Fascia_Disease" = "#8B0000" # Maroon
+  "F_Fascia_Disease" = "#984EA3"
 )
-# ==============================================================================
-# 3. THE F1-F8 SINGLE-R AUTO-ANNOTATION ENGINE (Single-Cell & Sorted)
-# ==============================================================================
-message("Running Single-Cell Level SingleR Auto-Annotation...")
 
-build_custom_singler_reference <- function(marker_dictionary, gene_universe) {
-  ref_mat <- sapply(names(marker_dictionary), function(label) {
-    genes <- intersect(marker_dictionary[[label]], gene_universe)
-    vec <- setNames(rep(0, length(gene_universe)), gene_universe)
-    vec[genes] <- 1
-    vec
-  })
-  ref_sce <- SingleCellExperiment(assays = list(logcounts = as.matrix(ref_mat)))
-  colData(ref_sce)$label <- colnames(ref_mat)
-  return(ref_sce)
+# --- MACROPHAGE DICTIONARY ---
+macrophage_dictionary <- list(
+  "M0_Non_Polarized" = c("CD68","LYZ","CSF1R", "AIF1"),
+  "M1_Inflammatory"  = c("CD80", "IL6", "CXCL9", "CXCL10"),
+  "M2_Wound_Healing" = c("CD163", "MRC1", "FOLR2", "CD209", "IL10", "CCL18")
+)
+macrophage_order <- c("M0_Non_Polarized", "M1_Inflammatory", "M2_Wound_Healing")
+macrophage_colors <- c("M0_Non_Polarized" = "#A6CEE3", "M1_Inflammatory"  = "#E31A1C", "M2_Wound_Healing" = "#33A02C")
+
+# ==============================================================================
+# 3. DYNAMIC AUTO-ANNOTATION ENGINE (AddModuleScore + Cluster Averaging)
+# ==============================================================================
+message("Running Cluster-Level Module Score Auto-Annotation...")
+
+# Setup variables based on celltype
+if (opt$celltype == "fibroblast") {
+  active_dict <- biological_dictionary
+  active_colors <- f1_f8_colors
+  active_order <- f1_f8_order
+} else if (opt$celltype == "macrophage") {
+  active_dict <- macrophage_dictionary
+  active_colors <- macrophage_colors
+  active_order <- macrophage_order
+} else {
+  active_dict <- list()
 }
 
-gene_universe <- rownames(FB.subgroup)
-ref_sce <- build_custom_singler_reference(biological_dictionary, gene_universe)
-test_sce <- as.SingleCellExperiment(FB.subgroup, assay = "RNA")
-
-# Run SingleR on EVERY INDIVIDUAL CELL (Ignores Seurat Resolution!)
-singler_res <- SingleR(
-  test = test_sce,
-  ref = ref_sce,
-  labels = ref_sce$label,
-  # clusters = FB.subgroup$seurat_clusters,  <-- REMOVED to force single-cell level annotation
-  assay.type.test = "logcounts",
-  assay.type.ref = "logcounts",
-  prune = FALSE 
-)
-
-# Map labels directly back to the individual cells
-FB.subgroup$SingleR_label <- singler_res$labels
-
-# --- MATHEMATICAL SORTING ---
-# Define the strict, logical biological order from the Atlas
-f1_f8_order <- c(
-  "F1_Superficial_Healthy", "F1_Superficial_Disease",
-  "F2_Reticular_Healthy", "F2_Reticular_Disease",
-  "F2_F3_Perivascular_Healthy", "F2_F3_Perivascular_Disease",
-  "F3_FRC_like_Healthy", "F3_FRC_like_Disease",
-  "F4_HF_DPEP_Healthy", "F4_HF_DPEP_Disease",
-  "F4_HF_TNN_Healthy", "F4_HF_TNN_Disease",
-  "F4_HF_DP_Healthy", "F4_HF_DP_Disease",
-  "F5_Schwann_NGFR_Healthy", "F5_Schwann_NGFR_Disease",
-  "F5_Schwann_RAMP1_Healthy", "F5_Schwann_RAMP1_Disease",
-  "F6_Inflammatory_Myo_Disease",
-  "F7_Myofibroblast",
-  "F8_Fascia_like_Myo_Disease",
-  "F_Fascia_Disease"
-)
-
-# Convert the text labels into an ordered factor. 
-active_levels <- intersect(f1_f8_order, unique(FB.subgroup$SingleR_label))
-
-# SAFETY CHECK: Print any unmapped cells so we know if there is a typo!
-unmapped <- setdiff(unique(FB.subgroup$SingleR_label), active_levels)
-if(length(unmapped) > 0) {
-  message("\nWARNING: The following clusters were not mapped in f1_f8_order:")
-  print(unmapped)
-}
-
-FB.subgroup$SingleR_label <- factor(FB.subgroup$SingleR_label, levels = active_levels)
-Idents(FB.subgroup) <- "SingleR_label"
-
-message("\n--- Biological Clusters Assigned & Sorted ---")
-print(table(Idents(FB.subgroup)))
-message("------------------------------------\n")
-
-# --- 3A. GLOBAL UMAP ---
-p_annotated_umap <- DimPlot(FB.subgroup, label = TRUE, repel = TRUE, cols = f1_f8_colors) + 
-  ggtitle("Single-Cell Annotated F1-F8 Fibroblasts")
-save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_F1_F8"), w = 9, h = 7 )
-
-# --- 3B. PER-SAMPLE UMAPS ---
-message("Generating sample-specific UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
-  
-  if (ncol(sample_obj) > 0) {
-    p_sub_umap <- DimPlot(sample_obj, label = TRUE, repel = TRUE, cols = f1_f8_colors) +
-      ggtitle(paste("F1-F8 Annotation - Sample:", sample_id))
-    save_dual_format(p_sub_umap, file.path(dirs$umaps_sample, paste0("UMAP_Annotated_", sample_id)), w = 8, h = 6)
+if (opt$celltype %in% c("fibroblast", "macrophage")) {
+  # 3a. Clean the dictionary and enforce quality control (Minimum 3 gene)
+  clean_dictionary <- function(dict, obj, min_genes = 3) {
+    cleaned_dict <- list()
+    for (prog in names(dict)) {
+      valid_genes <- intersect(dict[[prog]], rownames(obj))
+      if (length(valid_genes) >= min_genes) {
+        cleaned_dict[[prog]] <- valid_genes
+        message(sprintf(" [KEEP] %s: %d valid genes", prog, length(valid_genes)))
+      } else {
+        message(sprintf(" [DROP] %s: Only %d valid genes detected (requires %d)", prog, length(valid_genes), min_genes))
+      }
+    }
+    return(cleaned_dict)
   }
+
+  message("\nEvaluating dictionary signatures against dataset...")
+  active_dict_clean <- clean_dictionary(active_dict, seu_obj)
+
+  # Safety check: Stop if all dictionaries were dropped
+  if(length(active_dict_clean) == 0) {
+    message("FATAL: No signatures had enough valid genes to proceed.")
+    quit(save = "no", status = 1)
+  }
+
+
+  # 3b. Run AddModuleScore (computes continuous scores for each signature)
+  seu_obj <- AddModuleScore(
+    object = seu_obj,
+    features = active_dict_clean,
+    name = "ProgScore_"
+  )
+
+  # Seurat appends numbers to the name (ProgScore_1, ProgScore_2, etc.)
+  prog_cols <- paste0("ProgScore_", 1:length(active_dict_clean))
+  prog_names <- names(active_dict_clean)
+
+  # Ensure seurat_clusters exists (fallback to current Idents if missing)
+  if (!"seurat_clusters" %in% colnames(seu_obj@meta.data)) {
+    seu_obj$seurat_clusters <- Idents(seu_obj)
+  }
+
+  # 3c. Average the module scores per structural cluster
+  score_df <- seu_obj@meta.data %>%
+    dplyr::select(seurat_clusters, dplyr::all_of(prog_cols)) %>%
+    dplyr::group_by(seurat_clusters) %>%
+    dplyr::summarise(dplyr::across(dplyr::all_of(prog_cols), mean), .groups = "drop")
+
+  # normalize by gene set size to penalize massive sets like F7
+  gene_counts <- sapply(active_dict_clean, length)
+
+  for (i in seq_along(prog_cols)) {
+    score_df[[prog_cols[i]]] <- score_df[[prog_cols[i]]] / sqrt(gene_counts[i])
+  }
+
+  message("Generating QC Module Score Heatmap and UMAPs...")
+
+  # A. Score Heatmap (Validates cluster specificity)
+  score_matrix <- as.matrix(score_df[, prog_cols])
+  rownames(score_matrix) <- score_df$seurat_clusters
+  colnames(score_matrix) <- prog_names # Mapped from cleaned dictionary
+
+  pdf(file.path(dirs$master_sum, "QC_ModuleScore_Heatmap.pdf"), width = 12, height = 8)
+  pheatmap(score_matrix,
+           scale = "column", # Z-scores each signature to highlight peak cluster
+           cluster_rows = TRUE,
+           cluster_cols = TRUE,
+           main = paste(toupper(opt$celltype), "Module Score Z-Scores per Cluster"))
+  dev.off()
+
+  # Raw Score FeaturePlots (Visualizes continuous gradients on UMAP)
+  # Plots the first 4 successful signatures to prevent massive messy PDFs
+  f7_idx <- which(names(active_dict_clean) == "F7_Myofibroblast")
+
+  # Plot the first 3 programs PLUS the F7 program
+  plot_indices <- unique(c(1, 2, 3, f7_idx))
+  cols_to_plot <- prog_cols[plot_indices]
+
+  p_scores <- FeaturePlot(seu_obj, features = cols_to_plot, ncol = 2, order = TRUE)
+  save_plot(p_scores, dirs$umaps_global, "UMAP_ModuleScores_Raw", w = 12, h = 10)
+
+
+  # 3d. Assign the highest-scoring program to each cluster
+  best_labels <- apply(score_df[ , prog_cols, drop = FALSE], 1, function(x) {
+    ord <- order(x, decreasing = TRUE)
+    top1 <- ord[1]
+    top2 <- ord[2]
+
+    #If the difference between the best and second-best score is tiny, mark as Uncertain
+    if ((x[top1] - x[top2]) < 0.002) {
+      return("Uncertain")
+    }
+    return(prog_names[top1])
+  })
+
+  # 3e. Map the cluster labels back to the individual cells in the Seurat object
+  cluster_to_label <- setNames(best_labels, score_df$seurat_clusters)
+
+  seu_obj$Detailed_Label <- unname(cluster_to_label[as.character(seu_obj$seurat_clusters)])
+
+  # Convert to factor to maintain your custom ordering, then set as active identity
+  active_levels <- intersect(active_order, unique(seu_obj$Detailed_Label))
+  if("Uncertain" %in% unique(seu_obj$Detailed_Label)) {
+    active_levels <- c(active_levels, "Uncertain")
+    # Add a dedicated color for Uncertain (e.g., light grey)
+    active_colors["Uncertain"] <- "#D3D3D3" 
+  }
+  seu_obj$Detailed_Label <- factor(seu_obj$Detailed_Label, levels = active_levels)
+
+  Idents(seu_obj) <- "Detailed_Label"
+} else {
+  message("Bypassing dictionary scoring. Numbering Mast Cell clusters directly...")
+  
+  # Ensure seurat_clusters exists
+  if (!"seurat_clusters" %in% colnames(seu_obj@meta.data)) {
+    seu_obj$seurat_clusters <- Idents(seu_obj)
+  }
+  
+  # Assign raw cluster numbers as the detailed label
+  seu_obj$Detailed_Label <- factor(paste0("Cluster_", seu_obj$seurat_clusters))
+  Idents(seu_obj) <- "Detailed_Label"
+  
+  # Generate dynamic colors and order so downstream UMAPs don't break
+  active_order <- levels(seu_obj$Detailed_Label)
+  active_colors <- setNames(scales::hue_pal()(length(active_order)), active_order)
 }
 
-# ==============================================================================
-# 4. HANIFFA F1-F8 MARKER VISUALIZATION (Automated Loop)
-# ==============================================================================
-message("Generating Validation Plots (VlnPlots & DotPlots)...")
 
-for (category_name in names(validation_dictionary)) {
-  genes_to_plot <- validation_dictionary[[category_name]]
-  valid_genes <- intersect(genes_to_plot, rownames(FB.subgroup))
-  
+
+# --- GLOBAL UMAP ---
+p_global_umap <- DimPlot(seu_obj, group.by = "Detailed_Label", cols = active_colors, label = TRUE, repel = TRUE) +
+  ggtitle(paste(toupper(opt$celltype), "- Global Annotated UMAP")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+
+save_plot(p_global_umap, dirs$umaps_global, "UMAP_Annotated_Global", w = 10, h = 8)
+# --- PER SAMPLE UMAP ---
+p_per_sample <- DimPlot(seu_obj,
+                        group.by = "Detailed_Label",
+                        split.by = "orig.ident2",
+                        cols     = active_colors,
+                        pt.size  = 0.3,
+                        ncol     = 3) +
+  theme_void() + 
+  theme(
+    strip.text = element_text(size = 12, face = "bold"), 
+    legend.position = "bottom", 
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 4), nrow = 2)) + 
+  ggtitle(paste(toupper(opt$celltype), "- Per Sample"))
+
+save_plot(p_per_sample, dirs$umaps_sample, "UMAP_PerSample_Annotated", w = 18, h = ceiling(length(unique(seu_obj$orig.ident2)) / 3) * 5)
+
+# ==============================================================================
+# 4. UNIVERSAL VALIDATION PLOTS (VlnPlots & DotPlots)
+# ==============================================================================
+message("Generating Validation Plots...")
+
+for (category_name in names(active_dict)) {
+  genes_to_plot <- active_dict[[category_name]]
+  valid_genes <- intersect(genes_to_plot, rownames(seu_obj))
   if (length(valid_genes) == 0) next
   
-  # --- SEURAT V5 FIX: Use layer="data" instead of slot="data" ---
-  exp_data <- GetAssayData(FB.subgroup, assay = "RNA", layer = "data")
+  exp_data <- GetAssayData(seu_obj, assay = "RNA", layer = "data")
   valid_genes <- valid_genes[rowSums(exp_data[valid_genes, , drop = FALSE]) > 0]
+  if (length(valid_genes) == 0) next
   
-  if (length(valid_genes) == 0) {
-    message(paste("   -> Skipping", category_name, "(All genes have 0 expression)"))
-    next
-  }
-  
-  # DotPlots -> Saved to DotPlot Folder
-  tryCatch({
-    p_dot <- DotPlot(FB.subgroup, features = valid_genes) + 
-      RotatedAxis() + 
-      ggtitle(paste("Fibroblast -", category_name))
+  try({
+    p_dot <- DotPlot(seu_obj, features = valid_genes) + RotatedAxis() + ggtitle(paste(toupper(opt$celltype), "-", category_name))
     ggsave(file.path(dirs$val_dot, paste0("DotPlot_", category_name, ".pdf")), plot = p_dot, width = max(6, length(valid_genes)*0.5 + 2), height = 6)
-  }, error = function(e) message(paste("   -> Error generating DotPlot for", category_name)))
+  }, silent = TRUE)
   
-  # VlnPlots -> Saved to VlnPlot Folder
-  tryCatch({
-    p_vln <- VlnPlot(FB.subgroup, features = valid_genes, stack = TRUE, flip = TRUE, cols = f1_f8_colors) +
-      theme(legend.position = "none") +
-      ggtitle(paste("Fibroblast -", category_name))
+  try({
+    p_vln <- VlnPlot(seu_obj, features = valid_genes, stack = TRUE, flip = TRUE, cols = active_colors) + theme(legend.position = "none") + ggtitle(paste(toupper(opt$celltype), "-", category_name))
     ggsave(file.path(dirs$val_vln, paste0("VlnPlot_", category_name, ".pdf")), plot = p_vln, width = 8, height = max(6, length(valid_genes)*1.5))
-  }, error = function(e) message(paste("   -> Error generating VlnPlot for", category_name)))
+  }, silent = TRUE)
 }
 
 # ==============================================================================
-# 5. PUBLICATION MASTER DOTPLOT
+# 5. FIBROBLAST-SPECIFIC DOWNSTREAM TASKS (Bypassed for Macrophages)
 # ==============================================================================
-message("Generating Publication-Ready Master DotPlot...")
+if (opt$celltype == "fibroblast") {
+  message("Running Fibroblast-specific downstream analysis (Mucin, Highlights, Lineages)...")
+  
+  # Publication Master DotPlot
+  paper_signature_genes <- c("APCDD1", "COL18A1", "CRABP1", "CYP26B1", "WNT5A", "PI16", "CD34", "MFAP5", "KLF5", "DPP4", "PPARG", "CXCL12", "CCL19", "CD74", "CXCL9", "DPEP1", "TNN", "CORIN", "RAMP1", "NGFR", "IL11", "CXCL8", "MMP1", "ACTA2", "COL11A1", "COMP", "LRRC15", "ACAN", "ITGA10", "THBS4")
+  valid_paper_genes <- intersect(paper_signature_genes, rownames(seu_obj))
+  master_dotplot <- DotPlot(seu_obj, features = valid_paper_genes, dot.scale = 6) + theme_minimal() + RotatedAxis() + scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) + labs(title = "Fibroblast Subpopulation Signatures in PMH", x = "Key Marker Genes", y = "Identified Subclusters") + theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5), axis.text.x = element_text(angle = 45, hjust = 1, size = 10, face = "italic"), axis.text.y = element_text(size = 11, face = "bold"), legend.position = "right")
+  save_plot(master_dotplot, dirs$master_sum, "Publication_Master_DotPlot", w = 14, h = 8)
 
-paper_signature_genes <- c(
-  "APCDD1", "COL18A1", "CRABP1", "CYP26B1", "WNT5A",
-  "PI16", "CD34", "MFAP5", "KLF5", "DPP4", "PPARG", "CXCL12",
-  "CCL19", "CD74", "CXCL9", "DPEP1", "TNN", "CORIN", "RAMP1", "NGFR",
-  "IL11", "CXCL8", "MMP1", "ACTA2", "COL11A1", "COMP", "LRRC15", "ACAN", "ITGA10", "THBS4"
-)
-valid_paper_genes <- intersect(paper_signature_genes, rownames(FB.subgroup))
 
-master_dotplot <- DotPlot(FB.subgroup, features = valid_paper_genes, dot.scale = 6) +
-  theme_minimal() +
-  RotatedAxis() +
-  scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) +
-  labs(
-    title = "Fibroblast Subpopulation Signatures in PMH",
-    x = "Key Marker Genes",
-    y = "Identified Subclusters"
-  ) +
-  theme(
-    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 10, face = "italic"),
-    axis.text.y = element_text(size = 11, face = "bold"),
-    legend.position = "right"
+
+  # Macro-Lineages
+  seu_obj$Macro_Lineage <- dplyr::case_when(
+    grepl("^F1", seu_obj$Detailed_Label) ~ "F1_Superficial", 
+    grepl("^F2_Reticular", seu_obj$Detailed_Label) ~ "F2_Reticular", 
+    grepl("^F2_F3", seu_obj$Detailed_Label) ~ "F2/F3_Perivascular", 
+    grepl("^F3", seu_obj$Detailed_Label) ~ "F3_FRC_like", 
+    grepl("^F4", seu_obj$Detailed_Label) ~ "F4_HairFollicle", 
+    grepl("^F5", seu_obj$Detailed_Label) ~ "F5_Schwann", 
+    grepl("^F6", seu_obj$Detailed_Label) ~ "F6_Inflammatory_Myo", 
+    grepl("^F7", seu_obj$Detailed_Label) ~ "F7_Myofibroblast", 
+    grepl("^F8", seu_obj$Detailed_Label) ~ "F8_Fascia_like_Myo", 
+    grepl("^F_Fascia", seu_obj$Detailed_Label) ~ "F_Fascia", 
+    TRUE ~ "Unknown"
   )
 
-save_dual_format(master_dotplot, file.path(dirs$master_sum, "Publication_Master_DotPlot"), w = 14, h = 8)
+  macro_colors <- c("F1_Superficial" = "#1F77B4", "F2_Reticular" = "#2CA02C", "F2/F3_Perivascular" = "#FF7F00", "F3_FRC_like" = "#9467BD", "F4_HairFollicle" = "#E31A1C", "F5_Schwann" = "#E7298A", "F6_Inflammatory_Myo" = "#17BECF", "F7_Myofibroblast" = "#7F7F7F", "F8_Fascia_like_Myo" = "#8C564B", "F_Fascia" = "#8B0000", "Unknown" = "#D3D3D3")
+
+  p_macro_umap <- DimPlot(seu_obj, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) + ggtitle("Global UMAP: Major Fibroblast Lineages") + theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+  save_plot(p_macro_umap, dirs$umaps_global, "UMAP_MacroLineage_Global", w = 9, h = 7)
+}
+
 
 # ==============================================================================
-# 6. MUCIN & ECM GENE ANALYSIS
+# 5.4 MUCIN
 # ==============================================================================
-message("Running Mucin & Tissue Remodeling Gene Analysis...")
 
-mucin_ecm_genes <- c("MUC1", "HAS1", "HAS2", "MMP1", "MUC12", "HAS2", "HAS1", "HAS3", "VCAN", "FN1", "CEMIP", "HYAL1", "HYAL2", "CTGF", "TGFBI", "COL1A1", "COL1A2", "COL3A1", "COL5A1", "COL6A1", "SPARC", "POSTN", "ACTA2", "TAGLN", "LOX", "LOXL2")
-available_mucin <- intersect(mucin_ecm_genes, rownames(FB.subgroup))
 
-if(length(available_mucin) > 0) {
-  
-  num_samples <- length(unique(FB.subgroup$orig.ident2))
-  dynamic_width <- max(10, num_samples * 4) 
-  
-  for (gene in available_mucin) {
-    p_mucin_split <- FeaturePlot(
-      FB.subgroup, 
-      features = gene, 
-      split.by = "orig.ident2", 
-      pt.size = 0.5, 
-      order = FALSE,              
-      label = FALSE              
-    ) + 
-      patchwork::plot_annotation(title = paste("Expression of", gene, "Across Samples")) &
-      theme(legend.position = "right")
-    
-    save_dual_format(p_mucin_split, file.path(dirs$mucin, paste0("Mucin_UMAP_Split_", gene)), w = dynamic_width, h = 5)
-  }
-  
-  mucin_dotplot <- DotPlot(FB.subgroup, features = available_mucin, dot.scale = 8) +
-    theme_minimal() +
-    RotatedAxis() +
-    scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) +
-    labs(
-      title = "Mucin & ECM Production by Fibroblast Subtype",
-      x = "Target Genes",
-      y = "Fibroblast Subcluster"
-    ) +
-    theme(
-      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-      axis.text.x = element_text(face = "italic", color = "black", size = 12),
-      axis.text.y = element_text(color = "black", size = 12)
-    )
-  
-  save_dual_format(mucin_dotplot, file.path(dirs$mucin, "Mucin_DotPlot_Summary"), w = 10, h = 7)
-
-  for (sample_id in unique(FB.subgroup$orig.ident2)) {
-    sample_subset <- subset(FB.subgroup, subset = orig.ident2 == sample_id)
-    if (ncol(sample_subset) > 0) {
-      p_sample_dotplot <- DotPlot(sample_subset, features = available_mucin, dot.scale = 8) +
-        theme_minimal() +
-        RotatedAxis() +
-        scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) +
-        labs(
-          title = paste("Mucin & ECM Production - Sample:", sample_id),
-          x = "Target Genes",
-          y = "Fibroblast Subcluster"
-        ) +
-        theme(
-          plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-          axis.text.x = element_text(face = "italic", color = "black", size = 12),
-          axis.text.y = element_text(color = "black", size = 12)
-        )
-      save_dual_format(p_sample_dotplot, file.path(dirs$mucin, paste0("Mucin_DotPlot_Sample_", sample_id)), w = 10, h = 7)
-    }
+if (opt$celltype == "fibroblast") {
+  # Mucin & ECM Gene Analysis
+  mucin_ecm_genes <- c("MUC1", "HAS1", "HAS2", "MMP1", "MUC12", "HAS3", "VCAN", "FN1", "CEMIP", "HYAL1", "HYAL2", "CTGF", "TGFBI", "COL1A1", "COL1A2", "COL3A1", "COL5A1", "COL6A1", "SPARC", "POSTN", "ACTA2", "TAGLN", "LOX", "LOXL2")
+  available_mucin <- intersect(mucin_ecm_genes, rownames(seu_obj))
+  if(length(available_mucin) > 0) {
+    mucin_dotplot <- DotPlot(seu_obj, features = available_mucin, dot.scale = 8) + theme_minimal() + RotatedAxis() + scale_color_gradientn(colors = c("lightgrey", "blue", "darkred")) + labs(title = "Mucin & ECM Production by Fibroblast Subtype", x = "Target Genes", y = "Fibroblast Subcluster") + theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5), axis.text.x = element_text(face = "italic", color = "black", size = 12), axis.text.y = element_text(color = "black", size = 12))
+    save_plot(mucin_dotplot, dirs$mucin, "Mucin_DotPlot_Summary", w = 10, h = 7)
   }
 }
 
+
 # ==============================================================================
-# 7. PROPORTION BARPLOTS
+# 5.5 PROPORTIONS: PER-SAMPLE COMPOSITION
 # ==============================================================================
-create_proportion_barplot <- function(seurat_obj, group_col = "Condition", label_col = "SingleR_label", plot_title = "Cell Proportions") {
-  prop_df <- seurat_obj@meta.data %>%
-    group_by(.data[[group_col]], .data[[label_col]]) %>%
-    summarise(Count = n(), .groups = 'drop') %>%
-    group_by(.data[[group_col]]) %>%
-    mutate(Proportion = Count / sum(Count))
-  
-  p <- ggplot(prop_df, aes(x = .data[[group_col]], y = Proportion, fill = .data[[label_col]])) +
-    geom_col(position = "fill", color = "black", linewidth = 0.2) +
-    theme_classic() +
-    scale_fill_manual(values = f1_f8_colors) +
-    scale_y_continuous(labels = scales::percent_format()) +
-    labs(title = plot_title, x = group_col, y = "Percentage of Cells", fill = "Subtype") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = "bold"),
-          plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-  return(p)
-}
+message("Generating Sample Proportion Barplots...")
 
-create_proportion_barplot_filtered <- function(seurat_obj, group_col = "Condition", label_col = "SingleR_label", exclude_clusters = NULL, plot_title = "Cell Proportions") {
-  meta_df <- seurat_obj@meta.data
-  if (!is.null(exclude_clusters)) {
-    meta_df <- meta_df[!meta_df[[label_col]] %in% exclude_clusters, ]
-  }
-  prop_df <- meta_df %>%
-    group_by(.data[[group_col]], .data[[label_col]]) %>%
-    summarise(Count = n(), .groups = 'drop') %>%
-    group_by(.data[[group_col]]) %>%
-    mutate(Proportion = Count / sum(Count))
-  
-  p <- ggplot(prop_df, aes(x = .data[[group_col]], y = Proportion, fill = .data[[label_col]])) +
-    geom_col(position = "fill", color = "black", linewidth = 0.2) +
-    theme_classic() +
-    scale_fill_manual(values = f1_f8_colors) +
-    scale_y_continuous(labels = scales::percent_format()) +
-    labs(title = plot_title, x = group_col, y = "Relative Percentage (Filtered)", fill = "Subtype") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = "bold"),
-          plot.title = element_text(hjust = 0.5, face = "bold", size = 14))
-  return(p)
-}
-
-bar_cond <- create_proportion_barplot(FB.subgroup, group_col = "Condition", plot_title = "Fibroblast Subtypes by Condition")
-save_dual_format(bar_cond, file.path(dirs$proportions, "Proportion_Barplot_Condition"), w = 8, h = 6)
-
-bar_samp <- create_proportion_barplot(FB.subgroup, group_col = "orig.ident2", plot_title = "Fibroblast Subtypes by Sample")
-save_dual_format(bar_samp, file.path(dirs$proportions, "Proportion_Barplot_Sample"), w = 10, h = 6)
-
-# FIX: Filter out the newly updated Disease state names
-clusters_to_remove <- c("F6_Inflammatory_Myo_Disease", 
-                        "F7_Myofibroblast", 
-                        "F8_Fascia_like_Myo_Disease")
-
-bar_samp_filtered <- create_proportion_barplot_filtered(
-  FB.subgroup, 
+p_bar_sample <- create_proportion_barplot(
+  seurat_obj = seu_obj, 
   group_col = "orig.ident2", 
-  exclude_clusters = clusters_to_remove,
-  plot_title = "Sample Variances (Disease Signatures Excluded)"
+  title = paste(toupper(opt$celltype), "Detailed Composition by Sample"),
+  custom_colors = active_colors
 )
-save_dual_format(bar_samp_filtered, file.path(dirs$proportions, "Proportion_Barplot_Sample_Filtered"), w = 10, h = 6)
 
-message("Saving final annotated RDS...")
-saveRDS(FB.subgroup, file.path("/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast_0.6/processed", "fibroblast_annotated_final.rds"))
+save_plot(p_bar_sample, dirs$proportions, paste0(opt$celltype, "_sample_proportions"), w = 12, h = 7)
 
 # ==============================================================================
-# 8. MACRO-LINEAGE & ACTIVATION STATE SUMMARY
+# 6. SAVE DETAILED ANNOTATED RDS
 # ==============================================================================
-message("Grouping clusters into Macro Lineages for summary plots...")
+message("Saving detailed annotated RDS...")
 
-# 1. Create a "Macro Lineage" column (Combines the micro-clusters into their parent families)
-FB.subgroup$Macro_Lineage <- dplyr::case_when(
-  grepl("^F1", FB.subgroup$SingleR_label) ~ "F1_Superficial",
-  grepl("^F2_Reticular", FB.subgroup$SingleR_label) ~ "F2_Reticular",
-  grepl("^F2_F3", FB.subgroup$SingleR_label) ~ "F2/F3_Perivascular",
-  grepl("^F3", FB.subgroup$SingleR_label) ~ "F3_FRC_like",
-  grepl("^F4", FB.subgroup$SingleR_label) ~ "F4_HairFollicle",
-  grepl("^F5", FB.subgroup$SingleR_label) ~ "F5_Schwann",
-  grepl("^F6", FB.subgroup$SingleR_label) ~ "F6_Inflammatory_Myo",
-  grepl("^F7", FB.subgroup$SingleR_label) ~ "F7_Myofibroblast",
-  grepl("^F8", FB.subgroup$SingleR_label) ~ "F8_Fascia_like_Myo",
-  grepl("^F_Fascia", FB.subgroup$SingleR_label) ~ "F_Fascia",
-  TRUE ~ "Unknown"
-)
+final_rds_path <- file.path(opt$outdir, opt$celltype, "processed", paste0(opt$celltype, "_detailed_annotated.rds"))
 
-# Lock in the logical order of the lineages
-macro_order <- c("F1_Superficial", "F2_Reticular", "F2/F3_Perivascular", "F3_FRC_like", 
-                 "F4_HairFollicle", "F5_Schwann", "F6_Inflammatory_Myo", 
-                 "F7_Myofibroblast", "F8_Fascia_like_Myo", "F_Fascia")
-FB.subgroup$Macro_Lineage <- factor(FB.subgroup$Macro_Lineage, levels = macro_order)
+# This prevents the "cannot open the connection" crash!
+dir.create(dirname(final_rds_path), recursive = TRUE, showWarnings = FALSE)
 
-# 2. Create an "Activation State" column
-FB.subgroup$Activation_State <- ifelse(grepl("Healthy", FB.subgroup$SingleR_label), 
-                                       "Resting (Healthy)", "Activated (Disease)")
-FB.subgroup$Activation_State <- factor(FB.subgroup$Activation_State, levels = c("Resting (Healthy)", "Activated (Disease)"))
-
-# Define a clean, distinct 10-color palette for the Macro Lineages
-macro_colors <- c(
-  "F1_Superficial"      = "#1F77B4", # Blue
-  "F2_Reticular"        = "#2CA02C", # Green
-  "F2/F3_Perivascular"  = "#FF7F00", # Orange
-  "F3_FRC_like"         = "#9467BD", # Purple
-  "F4_HairFollicle"     = "#E31A1C", # Red
-  "F5_Schwann"          = "#E7298A", # Pink
-  "F6_Inflammatory_Myo" = "#17BECF", # Cyan
-  "F7_Myofibroblast"    = "#7F7F7F", # Grey
-  "F8_Fascia_like_Myo"  = "#8C564B", # Brown
-  "F_Fascia"            = "#8B0000"  # Maroon
-)
-
-# --- PLOT A: Overall Macro-Lineage Composition by Condition ---
-# This plot answers: "Are PMH samples mostly Myofibroblasts, while Healthy samples are mostly F1/F2?"
-prop_macro <- FB.subgroup@meta.data %>%
-  group_by(Condition, Macro_Lineage) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  group_by(Condition) %>%
-  mutate(Proportion = Count / sum(Count))
-
-p_macro_bar <- ggplot(prop_macro, aes(x = Condition, y = Proportion, fill = Macro_Lineage)) +
-  geom_col(position = "fill", color = "black", linewidth = 0.3) +
-  theme_classic() +
-  scale_fill_manual(values = macro_colors) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(title = "Major Fibroblast Lineages by Condition", x = "Disease State", y = "Percentage of Cells", fill = "Macro Lineage") +
-  theme(axis.text.x = element_text(size = 12, face = "bold"),
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-
-save_dual_format(p_macro_bar, file.path(dirs$proportions, "Summary_MacroLineage_Barplot"), w = 8, h = 6)
-
-# --- PLOT B: Activation Ratio (Healthy vs Disease State) ---
-# This plot looks ONLY at the cells that exist in both states (F1-F5) to see what % are activated.
-plastic_cells <- FB.subgroup@meta.data %>%
-  filter(!Macro_Lineage %in% c("F6_Inflammatory_Myo", "F7_Myofibroblast", "F8_Fascia_like_Myo", "F_Fascia"))
-
-prop_activation <- plastic_cells %>%
-  group_by(Condition, Activation_State) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  group_by(Condition) %>%
-  mutate(Proportion = Count / sum(Count))
-
-p_activation <- ggplot(prop_activation, aes(x = Condition, y = Proportion, fill = Activation_State)) +
-  geom_col(position = "fill", color = "black", linewidth = 0.3, width = 0.6) +
-  theme_classic() +
-  scale_fill_manual(values = c("Resting (Healthy)" = "#A6CEE3", "Activated (Disease)" = "#E31A1C")) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(title = "Fibroblast Activation Ratio (F1-F5 Only)", 
-       subtitle = "Shows the shift from Resting to Activated states across conditions",
-       x = "Patient Condition", y = "Percentage of F1-F5 Cells", fill = "Cellular State") +
-  theme(axis.text.x = element_text(size = 12, face = "bold"),
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
-        plot.subtitle = element_text(hjust = 0.5, face = "italic"))
-
-save_dual_format(p_activation, file.path(dirs$proportions, "Summary_ActivationState_Barplot"), w = 7, h = 6)
-
-# Calculate the proportions using the grouped 'Macro_Lineage' instead of the 22 micro-labels
-prop_samp_macro <- FB.subgroup@meta.data %>%
-  group_by(orig.ident2, Macro_Lineage) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  group_by(orig.ident2) %>%
-  mutate(Proportion = Count / sum(Count))
-
-# Generate the cleaned-up plot
-p_samp_macro <- ggplot(prop_samp_macro, aes(x = orig.ident2, y = Proportion, fill = Macro_Lineage)) +
-  geom_col(position = "fill", color = "black", linewidth = 0.3) +
-  theme_classic() +
-  scale_fill_manual(values = macro_colors) + # Uses the clean 10-color palette we defined in Section 8
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(
-    title = "Major Fibroblast Lineages by Sample", 
-    x = "Sample ID", 
-    y = "Percentage of Cells", 
-    fill = "Macro Lineage"
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 12, face = "bold"),
-    plot.title = element_text(hjust = 0.5, face = "bold", size = 16)
-  )
-
-# Save the beautiful version
-save_dual_format(p_samp_macro, file.path(dirs$proportions, "Clean_MacroLineage_BySample"), w = 10, h = 6)
-
-# ==============================================================================
-# 9. MACRO-LINEAGE UMAP VISUALIZATION
-# ==============================================================================
-message("Generating clean Macro Lineage UMAPs...")
-
-# --- PLOT C: Global UMAP by Macro Lineage ---
-# This overrides the active identity and colors strictly by the 10 major families
-p_macro_umap <- DimPlot(FB.subgroup, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) +
-  ggtitle("Global UMAP: Major Fibroblast Lineages") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-
-save_dual_format(p_macro_umap, file.path(dirs$umaps_global, "UMAP_MacroLineage_Global"), w = 9, h = 7)
-
-# --- PLOT D: Per-Sample UMAPs by Macro Lineage ---
-message("Generating sample-specific Macro Lineage UMAPs...")
-for (sample_id in unique(FB.subgroup$orig.ident2)) {
-  sample_obj <- subset(FB.subgroup, orig.ident2 == sample_id)
-  
-  if (ncol(sample_obj) > 0) {
-    p_sub_macro_umap <- DimPlot(sample_obj, group.by = "Macro_Lineage", label = TRUE, repel = TRUE, cols = macro_colors) +
-      ggtitle(paste("Major Lineages - Sample:", sample_id)) +
-      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14))
-      
-    save_dual_format(p_sub_macro_umap, file.path(dirs$umaps_sample, paste0("UMAP_MacroLineage_", sample_id)), w = 8, h = 6)
-  }
-}
-
-message("=== All Summary Plots and UMAPs Complete! ===")
-
-# ==============================================================================
-# 10. HIGHLIGHT UMAPS: ISOLATING THE MYOFIBROBLASTS
-# ==============================================================================
-message("Generating Highlight UMAPs for F7 and F8...")
-
-# 1. Remove F_Fascia completely to clean the plot
-FB.highlight <- subset(FB.subgroup, Macro_Lineage != "F_Fascia")
-
-# 2. Build the first grouping: F1-F6 Combined, F7 Separate, F8 Separate
-FB.highlight$Highlight_Group_1 <- dplyr::case_when(
-  FB.highlight$Macro_Lineage %in% c("F1_Superficial", "F2_Reticular", "F2/F3_Perivascular", "F3_FRC_like", "F4_HairFollicle", "F5_Schwann", "F6_Inflammatory_Myo") ~ "F1-F6 (Healthy & Inflammatory)",
-  FB.highlight$Macro_Lineage == "F7_Myofibroblast" ~ "F7_Myofibroblastfibroblast",
-  FB.highlight$Macro_Lineage == "F8_Fascia_like_Myo" ~ "F8_Fascia-like_Myofibroblast",
-  TRUE ~ "Other"
-)
-FB.highlight$Highlight_Group_1 <- factor(FB.highlight$Highlight_Group_1, 
-                                         levels = c("F1-F6 (Healthy & Inflammatory)", "F7_Myofibroblastfibroblast", "F8_Fascia-like_Myofibroblast"))
-
-# 3. Build the second grouping: F1-F6 Combined vs F7+F8 Combined
-FB.highlight$Highlight_Group_2 <- dplyr::case_when(
-  FB.highlight$Highlight_Group_1 == "F1-F6 (Healthy & Inflammatory)" ~ "F1-F6 (Healthy & Inflammatory)",
-  FB.highlight$Macro_Lineage %in% c("F7_Myofibroblast", "F8_Fascia_like_Myo") ~ "F7+F8 (All Terminal Myofibroblasts)",
-  TRUE ~ "Other"
-)
-FB.highlight$Highlight_Group_2 <- factor(FB.highlight$Highlight_Group_2, 
-                                         levels = c("F1-F6 (Healthy & Inflammatory)", "F7+F8 (All Terminal Myofibroblasts)"))
-
-# Define colors (Grey for background, Bold for targets)
-color_highlight_1 <- c(
-  "F1-F6 (Healthy & Inflammatory)" = "#D9D9D9",  # Light Grey
-  "F7_Myofibroblastfibroblast"     = "#252525",  # Almost Black
-  "F8_Fascia-like_Myofibroblast"   = "#810F7C"   # Dark Eggplant
-)
-
-color_highlight_2 <- c(
-  "F1-F6 (Healthy & Inflammatory)"      = "#D9D9D9",  # Light Grey
-  "F7+F8 (All Terminal Myofibroblasts)" = "#E31A1C"   # Bright Red
-)
-
-# --- PLOT E: F1-F6 Combined, F7 and F8 Separate ---
-p_highlight_1 <- DimPlot(FB.highlight, group.by = "Highlight_Group_1", label = FALSE, pt.size = 0.6, cols = color_highlight_1) +
-  ggtitle("Myofibroblast Isolation (F7 & F8 Split)") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-
-save_dual_format(p_highlight_1, file.path(dirs$umaps_global, "UMAP_Highlight_F7_F8_Split"), w = 9, h = 7)
-
-# --- PLOT F: Binary Plot (F1-F6 vs F7+F8) ---
-p_highlight_2 <- DimPlot(FB.highlight, group.by = "Highlight_Group_2", label = FALSE, pt.size = 0.6, cols = color_highlight_2) +
-  ggtitle("Global Myofibroblast Emergence (F7+F8 Combined)") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
-
-save_dual_format(p_highlight_2, file.path(dirs$umaps_global, "UMAP_Highlight_F7_F8_Combined"), w = 9, h = 7)
-
-message("=== Highlight UMAPs Complete! ===")
-
-out_dir <- "/home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/fibroblast/processed/fibroblast_annotated_full.rds"
-
-dir.create(dirname(out_dir), recursive = TRUE, showWarnings = FALSE)
-
-message("Saving final annotated RDS...")
-saveRDS(FB.subgroup, out_dir)
-
-message("=== Annotation Complete! ===")
+saveRDS(seu_obj, final_rds_path)
+message("=== Detail Annotation Complete! ===")

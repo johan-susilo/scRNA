@@ -10,6 +10,8 @@ suppressPackageStartupMessages({
 
 set.seed(42)
 
+#Rscript detail_annotation_macrophage.R -c macrophage  -i /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster/macrophage/processed/macrophage_subset_processed.rds -o /home/johan/output/skin_pmh_harmony_sctransform2/subset_cluster
+
 # ==============================================================================
 # 1. COMMAND LINE ARGUMENTS (SNAKEMAKE INTEGRATION)
 # ==============================================================================
@@ -80,9 +82,40 @@ f1_f8_colors <- c("F1_Superficial_Healthy" = "#A6CEE3", "F1_Superficial_Disease"
 
 # --- MACROPHAGE DICTIONARY ---
 macrophage_dictionary <- list(
-  "M0_Non_Polarized" = c("CD68", "MRC1"),
-  "M1_Inflammatory"  = c("CD80", "IL6", "CXCL9", "CXCL10"),
-  "M2_Wound_Healing" = c("CD163", "MRC1", "FOLR2", "CD209", "IL10", "CCL18")
+  M0_Non_Polarized = c(
+  "CD68",
+  "LYZ",
+  "CSF1R",
+  "AIF1",
+  "TYROBP",
+  "FCER1G",
+  "CTSB",
+  "CTSD",
+  "MERTK",
+  "VSIG4"
+),
+  M1_Inflammatory = c(
+  "IL1B",
+  "TNF",
+  "IL6",
+  "CXCL9",
+  "CXCL10",
+  "CXCL11",
+  "CD80",
+  "CD86",
+  "CCL3",
+  "CCL4",
+  "STAT1"
+),
+  M2_Wound_Healing = c(
+  "CD163",
+  "MRC1",
+  "CCL18",
+  "CCL22",
+  "IL10",
+  "FOLR2",
+  "MSR1"
+)
 )
 macrophage_order <- c("M0_Non_Polarized", "M1_Inflammatory", "M2_Wound_Healing")
 macrophage_colors <- c("M0_Non_Polarized" = "#A6CEE3", "M1_Inflammatory"  = "#E31A1C", "M2_Wound_Healing" = "#33A02C")
@@ -137,6 +170,11 @@ Idents(seu_obj) <- "SingleR_label"
 p_annotated_umap <- DimPlot(seu_obj, label = TRUE, repel = TRUE, cols = active_colors) + 
   ggtitle(paste("Single-Cell Annotated", toupper(opt$celltype)))
 save_dual_format(p_annotated_umap, file.path(dirs$umaps_global, "UMAP_Annotated_Global"), w = 9, h = 7 )
+
+p_per_sample_umap <- DimPlot(seu_obj, label = TRUE, repel = TRUE, cols = active_colors, split.by="orig.ident2") + 
+  ggtitle(paste("Single-Cell Annotated", toupper(opt$celltype)))
+save_dual_format(p_per_sample_umap, file.path(dirs$umaps_sample, "UMAP_PerSample_Annotated"), w = 9, h = 7 )
+
 
 # ==============================================================================
 # 4. UNIVERSAL VALIDATION PLOTS (VlnPlots & DotPlots)
